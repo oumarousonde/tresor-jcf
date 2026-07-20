@@ -278,15 +278,16 @@
   /* ---------- Table ---------- */
   .table-wrap{
     background:var(--surface);border:1px solid var(--border);
-    border-radius:var(--radius);overflow:hidden;box-shadow:var(--shadow-sm);
+    border-radius:var(--radius);box-shadow:var(--shadow-sm);
+    overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;
   }
-  table{width:100%;border-collapse:collapse;font-size:13.5px;}
+  table{width:100%;min-width:640px;border-collapse:collapse;font-size:13.5px;}
   thead th{
     background:var(--surface-alt);color:var(--muted);
     text-align:left;padding:12px 16px;font-weight:600;
     font-family:'JetBrains Mono',monospace;font-size:10.5px;
     letter-spacing:.04em;text-transform:uppercase;
-    border-bottom:1px solid var(--border);
+    border-bottom:1px solid var(--border);white-space:nowrap;
   }
   tbody tr{border-bottom:1px solid var(--border);}
   tbody tr:hover{background:var(--surface-alt);}
@@ -297,6 +298,21 @@
     border-top:2px solid var(--ink);
     background:var(--surface-alt);
     font-family:'JetBrains Mono',monospace;
+  }
+  thead th:last-child, tbody td:last-child, tfoot td:last-child{
+    position:sticky;right:0;
+    box-shadow:-8px 0 10px -8px rgba(17,21,46,0.12);
+  }
+  thead th:last-child{background:var(--surface-alt);}
+  tbody td:last-child{background:var(--surface);}
+  tbody tr:hover td:last-child{background:var(--surface-alt);}
+  tfoot td:last-child{background:var(--surface-alt);}
+  .scroll-hint{
+    display:none;font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--muted);
+    padding:0 2px 8px 2px;
+  }
+  @media (max-width:820px){
+    .scroll-hint{display:block;}
   }
   .cat-pill{
     display:inline-block;padding:4px 10px;border-radius:20px;
@@ -344,6 +360,74 @@
     .hero-figure{font-size:32px;}
   }
 
+  /* ---------- Écran de verrouillage (auth) ---------- */
+  .auth-overlay{
+    position:fixed;inset:0;z-index:2000;
+    background:linear-gradient(160deg,var(--ink) 0%,#0d1730 100%);
+    display:none;align-items:center;justify-content:center;
+    padding:24px;
+  }
+  .auth-overlay.show{display:flex;}
+  .auth-card{
+    background:var(--surface);border-radius:16px;
+    padding:34px 30px;max-width:380px;width:100%;
+    box-shadow:0 20px 50px rgba(0,0,0,0.35);
+  }
+  .auth-eyebrow{
+    font-family:'JetBrains Mono',monospace;font-size:10.5px;letter-spacing:.14em;
+    text-transform:uppercase;color:var(--accent);font-weight:700;margin-bottom:6px;text-align:center;
+  }
+  .auth-title{
+    font-family:'Sora',sans-serif;font-size:21px;font-weight:700;text-align:center;
+    margin:0 0 22px 0;color:var(--text);
+  }
+  .auth-field{margin-bottom:14px;}
+  .auth-field label{
+    display:block;font-family:'JetBrains Mono',monospace;font-size:10.5px;
+    letter-spacing:.05em;text-transform:uppercase;color:var(--muted);margin-bottom:6px;font-weight:500;
+  }
+  .auth-field input{
+    width:100%;padding:11px 12px;border:1px solid var(--border);border-radius:8px;
+    font-family:'Inter',sans-serif;font-size:14.5px;background:var(--surface-alt);color:var(--text);
+  }
+  .auth-field input:focus{outline:none;border-color:var(--accent);background:#fff;box-shadow:0 0 0 3px var(--accent-soft);}
+  .auth-error{
+    background:var(--red-soft);color:var(--red);font-size:12.5px;padding:9px 12px;
+    border-radius:8px;margin-bottom:14px;display:none;
+  }
+  .auth-error.show{display:block;}
+  .auth-btn{
+    width:100%;padding:12px;border-radius:9px;border:none;font-weight:700;
+    font-family:'Inter',sans-serif;font-size:14.5px;cursor:pointer;margin-top:4px;
+  }
+  .auth-btn-primary{background:var(--accent);color:#fff;}
+  .auth-btn-primary:hover{background:var(--accent-dark);}
+  .auth-btn-fingerprint{
+    background:var(--surface-alt);color:var(--text);border:1px solid var(--border);
+    display:flex;align-items:center;justify-content:center;gap:8px;margin-top:10px;
+  }
+  .auth-btn-fingerprint:hover{border-color:var(--accent);color:var(--accent-dark);}
+  .auth-divider{
+    display:flex;align-items:center;gap:10px;margin:16px 0;
+    font-family:'JetBrains Mono',monospace;font-size:10.5px;color:var(--muted);text-transform:uppercase;
+  }
+  .auth-divider::before, .auth-divider::after{content:"";flex:1;height:1px;background:var(--border);}
+  .auth-footnote{
+    text-align:center;font-size:11.5px;color:var(--muted);margin-top:16px;line-height:1.5;
+  }
+  .auth-switch{
+    text-align:center;margin-top:16px;font-size:12.5px;color:var(--muted);
+  }
+  .auth-switch button{
+    background:none;border:none;color:var(--accent-dark);font-weight:600;cursor:pointer;
+    text-decoration:underline;padding:0;font-size:12.5px;
+  }
+  .logout-btn{
+    background:none;border:none;color:#9aa0c6;font-size:12px;cursor:pointer;
+    display:flex;align-items:center;gap:6px;padding:4px 0;
+  }
+  .logout-btn:hover{color:#fff;}
+
   .toast{
     position:fixed;bottom:22px;right:22px;background:var(--ink);color:#fff;
     padding:12px 18px;border-radius:9px;font-size:13px;box-shadow:0 8px 24px rgba(17,21,46,.35);
@@ -354,6 +438,8 @@
 </style>
 </head>
 <body>
+
+<div id="authOverlay" class="auth-overlay"></div>
 
 <div class="app">
   <aside class="sidebar">
@@ -452,6 +538,33 @@ function toast(msg){
 
 /* ---------- utilitaires ---------- */
 function uid(){ return 'id'+Date.now().toString(36)+Math.random().toString(36).slice(2,7); }
+function parseMontant(raw){
+  if(raw==null) return 0;
+  let s = String(raw).trim().toLowerCase();
+  if(s==='') return 0;
+  // enlève les mots/lettres de devise (f, fcfa, cfa, frs, francs, $, €...) et espaces
+  s = s.replace(/fcfa|cfa|frs?\.?|francs?|xof|\$|€/gi,'');
+  s = s.replace(/[^0-9,.\-]/g,'');
+  if(s==='') return 0;
+  const neg = s.startsWith('-');
+  if(neg) s = s.slice(1);
+  const parts = s.split(/[,.]/).filter(p=>p!=='');
+  let normalized;
+  if(parts.length <= 1){
+    normalized = parts[0] || '0';
+  } else {
+    const lastPart = parts[parts.length-1];
+    if(lastPart.length === 3){
+      // séparateurs de milliers (ex: 6,800 ou 1.234.567)
+      normalized = parts.join('');
+    } else {
+      // dernier séparateur = virgule décimale (ex: 6800,50)
+      normalized = parts.slice(0,-1).join('') + '.' + lastPart;
+    }
+  }
+  const n = parseFloat(normalized);
+  return isNaN(n) ? 0 : (neg ? -n : n);
+}
 function fmt(n){
   const v = Number(n)||0;
   return v.toLocaleString('fr-FR',{minimumFractionDigits:0,maximumFractionDigits:0}) + ' ' + state.devise;
@@ -670,7 +783,7 @@ function viewParticipation(){
               ${state.categoriesParticipation.map(c=>`<option value="${c.id}" ${edit&&edit.categorieId===c.id?'selected':''}>${escapeHtml(c.nom)} — ${fmt(c.montant)}</option>`).join('')}
             </select>
           </div>
-          <div class="field"><label>Montant reçu (FCFA)</label><input type="number" step="500" min="0" name="montant" required placeholder="0" value="${edit? edit.montant:''}"></div>
+          <div class="field"><label>Montant reçu (FCFA)</label><input type="text" inputmode="decimal" name="montant" required placeholder="Ex: 6800 ou 6800f" value="${edit? edit.montant:''}"></div>
         </div>
         <div class="form-actions">
           <button type="submit" class="btn btn-gold">${edit?'Mettre à jour':'+ Ajouter'}</button>
@@ -694,6 +807,7 @@ function viewParticipation(){
       <span class="count">${list.length} entrée(s)</span>
     </div>
 
+    <div class="scroll-hint">← Glisse le tableau vers la gauche pour voir toutes les colonnes →</div>
     <div class="table-wrap">
       <table>
         <thead><tr>
@@ -745,7 +859,7 @@ function viewDons(){
           <div class="field"><label>Date</label><input type="date" name="date" required value="${edit?edit.date:todayISO()}"></div>
           <div class="field"><label>Nom</label><input type="text" name="nom" required value="${edit?escapeHtml(edit.nom):''}"></div>
           <div class="field"><label>Prénom</label><input type="text" name="prenom" required value="${edit?escapeHtml(edit.prenom):''}"></div>
-          <div class="field"><label>Montant du don (FCFA)</label><input type="number" step="500" min="0" name="montant" required placeholder="0" value="${edit?edit.montant:''}"></div>
+          <div class="field"><label>Montant du don (FCFA)</label><input type="text" inputmode="decimal" name="montant" required placeholder="Ex: 6800 ou 6800f" value="${edit?edit.montant:''}"></div>
         </div>
         <div class="form-actions">
           <button type="submit" class="btn btn-gold">${edit?'Mettre à jour':'+ Ajouter'}</button>
@@ -759,6 +873,7 @@ function viewDons(){
       <span class="count">${list.length} don(s)</span>
     </div>
 
+    <div class="scroll-hint">← Glisse le tableau vers la gauche pour voir toutes les colonnes →</div>
     <div class="table-wrap">
       <table>
         <thead><tr><th>Date</th><th>Nom</th><th>Prénom</th><th class="num">Montant</th><th></th></tr></thead>
@@ -804,7 +919,7 @@ function viewDepenses(){
             </select>
           </div>
           <div class="field" style="grid-column:span 2;"><label>Description</label><input type="text" name="description" required placeholder="Ex: Achat de riz et huile" value="${edit?escapeHtml(edit.description):''}"></div>
-          <div class="field"><label>Montant (FCFA)</label><input type="number" step="500" min="0" name="montant" required placeholder="0" value="${edit?edit.montant:''}"></div>
+          <div class="field"><label>Montant (FCFA)</label><input type="text" inputmode="decimal" name="montant" required placeholder="Ex: 6800 ou 6800f" value="${edit?edit.montant:''}"></div>
         </div>
         <div class="form-actions">
           <button type="submit" class="btn btn-gold">${edit?'Mettre à jour':'+ Ajouter'}</button>
@@ -821,6 +936,7 @@ function viewDepenses(){
       <span class="count">${list.length} dépense(s)</span>
     </div>
 
+    <div class="scroll-hint">← Glisse le tableau vers la gauche pour voir toutes les colonnes →</div>
     <div class="table-wrap">
       <table>
         <thead><tr><th>Date</th><th>Catégorie</th><th>Description</th><th class="num">Montant</th><th></th></tr></thead>
@@ -869,7 +985,7 @@ function viewParametres(){
         ${state.categoriesParticipation.map(c=>`
           <div class="cat-row">
             <span class="cat-name">${escapeHtml(c.nom)}</span>
-            <input type="number" step="500" min="0" data-fee="${c.id}" value="${c.montant}">
+            <input type="text" inputmode="decimal" data-fee="${c.id}" value="${c.montant}">
           </div>`).join('')}
         <p style="font-size:12px;color:var(--muted);margin-top:10px;">Ce montant sert de référence pour calculer l'écart attendu / reçu dans le tableau de bord.</p>
       </div>
@@ -882,6 +998,29 @@ function viewParametres(){
         <div class="tag-list">
           ${state.categoriesDepenses.map(c=>`<span class="tag">${escapeHtml(c)}<button data-remove-cat="${escapeHtml(c)}">✕</button></span>`).join('')}
         </div>
+      </div>
+      <div class="panel">
+        <div class="section-title">Accès (email, mot de passe, empreinte)</div>
+        ${(() => {
+          const auth = loadAuthState();
+          const hasFingerprint = !!(auth && auth.webauthnCredentialId);
+          return `
+            <p style="font-size:12.5px;color:var(--muted);margin-bottom:10px;">Compte : <b>${auth ? escapeHtml(auth.email) : '—'}</b></p>
+            <div class="field"><label>Mot de passe actuel</label><input type="password" id="currentPwInput" placeholder="Requis pour changer"></div>
+            <div class="field"><label>Nouveau mot de passe</label><input type="password" id="newPwInput" minlength="4" placeholder="Au moins 4 caractères"></div>
+            <button class="btn btn-outline" id="btnChangePw">Mettre à jour le mot de passe</button>
+            <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border);">
+              ${hasFingerprint
+                ? `<p style="font-size:12.5px;color:var(--accent-dark);margin-bottom:8px;">✓ Empreinte digitale activée</p>
+                   <button class="btn btn-outline" id="btnRemoveFingerprint">Désactiver l'empreinte</button>`
+                : `<button class="btn btn-outline" id="btnRegisterFingerprint">Activer l'empreinte digitale</button>`
+              }
+            </div>
+            <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border);">
+              <button class="btn btn-outline" id="btnLockNow">🔒 Verrouiller l'app maintenant</button>
+            </div>
+          `;
+        })()}
       </div>
       <div class="panel">
         <div class="section-title">Zone de sécurité</div>
@@ -897,6 +1036,7 @@ function viewParametres(){
    HANDLERS
    ========================================================= */
 function attachHandlers(){
+  attachSecurityHandlers();
   // Participation
   const fp = document.getElementById('formParticipation');
   if(fp){
@@ -906,7 +1046,7 @@ function attachHandlers(){
       const entry = {
         id: editing.participation || uid(),
         date: fd.get('date'), nom: fd.get('nom').trim(), prenom: fd.get('prenom').trim(),
-        categorieId: fd.get('categorieId'), montant: parseFloat(fd.get('montant'))||0,
+        categorieId: fd.get('categorieId'), montant: parseMontant(fd.get('montant')),
       };
       if(editing.participation){
         const idx = state.participations.findIndex(p=>p.id===editing.participation);
@@ -932,7 +1072,7 @@ function attachHandlers(){
     fd_.addEventListener('submit', e=>{
       e.preventDefault();
       const fd = new FormData(fd_);
-      const entry = { id: editing.don||uid(), date: fd.get('date'), nom: fd.get('nom').trim(), prenom: fd.get('prenom').trim(), montant: parseFloat(fd.get('montant'))||0 };
+      const entry = { id: editing.don||uid(), date: fd.get('date'), nom: fd.get('nom').trim(), prenom: fd.get('prenom').trim(), montant: parseMontant(fd.get('montant')) };
       if(editing.don){
         const idx = state.dons.findIndex(d=>d.id===editing.don);
         state.dons[idx] = entry; toast('Don mis à jour');
@@ -950,7 +1090,7 @@ function attachHandlers(){
     fdep.addEventListener('submit', e=>{
       e.preventDefault();
       const fd = new FormData(fdep);
-      const entry = { id: editing.depense||uid(), date: fd.get('date'), categorie: fd.get('categorie'), description: fd.get('description').trim(), montant: parseFloat(fd.get('montant'))||0 };
+      const entry = { id: editing.depense||uid(), date: fd.get('date'), categorie: fd.get('categorie'), description: fd.get('description').trim(), montant: parseMontant(fd.get('montant')) };
       if(editing.depense){
         const idx = state.depenses.findIndex(d=>d.id===editing.depense);
         state.depenses[idx] = entry; toast('Dépense mise à jour');
@@ -995,7 +1135,7 @@ function attachHandlers(){
   document.querySelectorAll('[data-fee]').forEach(inp=>{
     inp.addEventListener('input', ()=>{
       const cat = state.categoriesParticipation.find(c=>c.id===inp.dataset.fee);
-      if(cat){ cat.montant = parseFloat(inp.value)||0; saveState(); }
+      if(cat){ cat.montant = parseMontant(inp.value); saveState(); }
     });
   });
   document.getElementById('addDepCat')?.addEventListener('click', ()=>{
@@ -1222,9 +1362,245 @@ function exportExcel(){
 document.getElementById('btnExport').addEventListener('click', exportExcel);
 
 /* =========================================================
+   AUTHENTIFICATION (email + mot de passe + empreinte digitale)
+   Tout est stocké localement dans ce navigateur : il n'y a pas
+   de serveur, donc ceci protège l'accès sur cet appareil, pas
+   une sécurité bancaire.
+   ========================================================= */
+const AUTH_KEY = 'jcf-finances-auth-v1';
+const AUTH_SESSION_KEY = 'jcf-finances-unlocked';
+let authMode = 'login'; // 'login' | 'setup'
+
+function loadAuthState(){
+  try{
+    const raw = localStorage.getItem(AUTH_KEY);
+    return raw ? JSON.parse(raw) : null;
+  }catch(e){ return null; }
+}
+function saveAuthState(obj){
+  localStorage.setItem(AUTH_KEY, JSON.stringify(obj));
+}
+function bufToHex(buf){
+  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
+}
+async function sha256Hex(text){
+  const enc = new TextEncoder().encode(text);
+  const digest = await crypto.subtle.digest('SHA-256', enc);
+  return bufToHex(digest);
+}
+function randomSaltHex(){
+  const arr = new Uint8Array(16);
+  crypto.getRandomValues(arr);
+  return bufToHex(arr.buffer);
+}
+function webauthnAvailable(){
+  return window.isSecureContext && window.PublicKeyCredential !== undefined;
+}
+
+function showAuthOverlay(){
+  document.getElementById('authOverlay').classList.add('show');
+}
+function hideAuthOverlay(){
+  document.getElementById('authOverlay').classList.remove('show');
+}
+
+function initAuthFlow(){
+  const auth = loadAuthState();
+  const alreadyUnlocked = sessionStorage.getItem(AUTH_SESSION_KEY) === '1';
+  if(alreadyUnlocked){
+    startApp();
+    return;
+  }
+  authMode = auth ? 'login' : 'setup';
+  showAuthOverlay();
+  renderAuthOverlay();
+}
+
+function startApp(){
+  hideAuthOverlay();
+  sessionStorage.setItem(AUTH_SESSION_KEY, '1');
+  loadState();
+}
+
+function renderAuthOverlay(){
+  const el = document.getElementById('authOverlay');
+  const auth = loadAuthState();
+  const hasFingerprint = !!(auth && auth.webauthnCredentialId);
+
+  if(authMode === 'setup'){
+    el.innerHTML = `
+      <div class="auth-card">
+        <div class="auth-eyebrow">Camp JCF 2026</div>
+        <h2 class="auth-title">Créer votre accès</h2>
+        <div class="auth-error" id="authError"></div>
+        <form id="authSetupForm">
+          <div class="auth-field"><label>Adresse email</label><input type="email" id="setupEmail" required placeholder="toi@exemple.com"></div>
+          <div class="auth-field"><label>Mot de passe</label><input type="password" id="setupPassword" required minlength="4" placeholder="Au moins 4 caractères"></div>
+          <div class="auth-field"><label>Confirmer le mot de passe</label><input type="password" id="setupPasswordConfirm" required minlength="4" placeholder="Retape le mot de passe"></div>
+          <button type="submit" class="auth-btn auth-btn-primary">Créer mon accès</button>
+        </form>
+        <p class="auth-footnote">Cet accès protège l'app sur cet appareil. Il n'y a pas de serveur : ne perds pas ce mot de passe, il ne peut pas être récupéré à distance.</p>
+      </div>
+    `;
+    document.getElementById('authSetupForm').addEventListener('submit', handleSetupSubmit);
+  } else {
+    el.innerHTML = `
+      <div class="auth-card">
+        <div class="auth-eyebrow">Camp JCF 2026</div>
+        <h2 class="auth-title">Connexion</h2>
+        <div class="auth-error" id="authError"></div>
+        <form id="authLoginForm">
+          <div class="auth-field"><label>Adresse email</label><input type="email" id="loginEmail" required value="${escapeHtml(auth.email)}"></div>
+          <div class="auth-field"><label>Mot de passe</label><input type="password" id="loginPassword" required placeholder="Ton mot de passe"></div>
+          <button type="submit" class="auth-btn auth-btn-primary">Se connecter</button>
+        </form>
+        ${hasFingerprint && webauthnAvailable() ? `
+          <div class="auth-divider">ou</div>
+          <button type="button" class="auth-btn auth-btn-fingerprint" id="btnFingerprintLogin">🔒 Utiliser l'empreinte digitale</button>
+        ` : ''}
+        <div class="auth-switch"><button type="button" id="btnForgotAccess">Mot de passe oublié / réinitialiser l'accès</button></div>
+      </div>
+    `;
+    document.getElementById('authLoginForm').addEventListener('submit', handleLoginSubmit);
+    document.getElementById('btnFingerprintLogin')?.addEventListener('click', handleFingerprintLogin);
+    document.getElementById('btnForgotAccess').addEventListener('click', ()=>{
+      if(confirm('Cela efface le compte local (email/mot de passe/empreinte) mais garde toutes tes données financières. Continuer ?')){
+        localStorage.removeItem(AUTH_KEY);
+        authMode = 'setup';
+        renderAuthOverlay();
+      }
+    });
+  }
+}
+
+function showAuthError(msg){
+  const el = document.getElementById('authError');
+  el.textContent = msg;
+  el.classList.add('show');
+}
+
+async function handleSetupSubmit(e){
+  e.preventDefault();
+  const email = document.getElementById('setupEmail').value.trim().toLowerCase();
+  const password = document.getElementById('setupPassword').value;
+  const confirmPw = document.getElementById('setupPasswordConfirm').value;
+  if(password !== confirmPw){ showAuthError('Les deux mots de passe ne correspondent pas.'); return; }
+  if(password.length < 4){ showAuthError('Le mot de passe doit faire au moins 4 caractères.'); return; }
+  const salt = randomSaltHex();
+  const hash = await sha256Hex(password + salt);
+  saveAuthState({ email, salt, hash, webauthnCredentialId: null });
+  toast('Accès créé ✓');
+  startApp();
+}
+
+async function handleLoginSubmit(e){
+  e.preventDefault();
+  const auth = loadAuthState();
+  const email = document.getElementById('loginEmail').value.trim().toLowerCase();
+  const password = document.getElementById('loginPassword').value;
+  const hash = await sha256Hex(password + auth.salt);
+  if(email === auth.email && hash === auth.hash){
+    startApp();
+  } else {
+    showAuthError('Email ou mot de passe incorrect.');
+  }
+}
+
+async function handleFingerprintLogin(){
+  const auth = loadAuthState();
+  try{
+    const challenge = crypto.getRandomValues(new Uint8Array(32));
+    const credentialId = Uint8Array.from(atob(auth.webauthnCredentialId), c=>c.charCodeAt(0));
+    await navigator.credentials.get({
+      publicKey: {
+        challenge,
+        allowCredentials: [{ id: credentialId, type: 'public-key' }],
+        userVerification: 'required',
+        timeout: 60000,
+      }
+    });
+    // Une assertion réussie = l'empreinte a été vérifiée par l'appareil
+    startApp();
+  } catch(err){
+    showAuthError("Empreinte non reconnue ou annulée. Utilise ton mot de passe.");
+  }
+}
+
+async function registerFingerprint(){
+  const auth = loadAuthState();
+  if(!auth){ toast("Crée d'abord ton accès email/mot de passe."); return; }
+  if(!webauthnAvailable()){ toast("L'empreinte digitale n'est pas disponible sur cet appareil/navigateur."); return; }
+  try{
+    const challenge = crypto.getRandomValues(new Uint8Array(32));
+    const userId = crypto.getRandomValues(new Uint8Array(16));
+    const cred = await navigator.credentials.create({
+      publicKey: {
+        challenge,
+        rp: { name: 'Trésor JCF' },
+        user: { id: userId, name: auth.email, displayName: auth.email },
+        pubKeyCredParams: [{ type:'public-key', alg:-7 }, { type:'public-key', alg:-257 }],
+        authenticatorSelection: { authenticatorAttachment:'platform', userVerification:'required' },
+        timeout: 60000,
+      }
+    });
+    const credentialIdB64 = btoa(String.fromCharCode(...new Uint8Array(cred.rawId)));
+    auth.webauthnCredentialId = credentialIdB64;
+    saveAuthState(auth);
+    toast('Empreinte digitale activée ✓');
+    renderParametres_refresh();
+  } catch(err){
+    toast("Impossible d'activer l'empreinte (annulé ou non supporté).");
+  }
+}
+
+function removeFingerprint(){
+  const auth = loadAuthState();
+  if(!auth) return;
+  auth.webauthnCredentialId = null;
+  saveAuthState(auth);
+  toast('Empreinte digitale désactivée');
+  renderParametres_refresh();
+}
+
+function lockApp(){
+  sessionStorage.removeItem(AUTH_SESSION_KEY);
+  location.reload();
+}
+
+async function changePassword(currentPw, newPw){
+  const auth = loadAuthState();
+  const currentHash = await sha256Hex(currentPw + auth.salt);
+  if(currentHash !== auth.hash){ toast('Mot de passe actuel incorrect.'); return false; }
+  const newSalt = randomSaltHex();
+  auth.salt = newSalt;
+  auth.hash = await sha256Hex(newPw + newSalt);
+  saveAuthState(auth);
+  toast('Mot de passe mis à jour ✓');
+  return true;
+}
+
+function attachSecurityHandlers(){
+  document.getElementById('btnChangePw')?.addEventListener('click', async ()=>{
+    const cur = document.getElementById('currentPwInput').value;
+    const neu = document.getElementById('newPwInput').value;
+    if(!cur || !neu){ toast('Remplis les deux champs.'); return; }
+    if(neu.length < 4){ toast('Le nouveau mot de passe doit faire au moins 4 caractères.'); return; }
+    const ok = await changePassword(cur, neu);
+    if(ok) renderParametres_refresh();
+  });
+  document.getElementById('btnRegisterFingerprint')?.addEventListener('click', registerFingerprint);
+  document.getElementById('btnRemoveFingerprint')?.addEventListener('click', removeFingerprint);
+  document.getElementById('btnLockNow')?.addEventListener('click', lockApp);
+}
+
+function renderParametres_refresh(){
+  if(currentTab === 'parametres'){ document.getElementById('content').innerHTML = viewParametres(); attachHandlers(); attachSecurityHandlers(); }
+}
+
+/* =========================================================
    INIT
    ========================================================= */
-loadState();
+initAuthFlow();
 
 /* ---------- mode hors-ligne + mise à jour auto (service worker) ---------- */
 if('serviceWorker' in navigator){
