@@ -344,7 +344,10 @@
   .tag{
     background:var(--surface-alt);border:1px solid var(--border);border-radius:20px;
     padding:6px 12px;font-size:12.5px;display:flex;align-items:center;gap:8px;
+    font-family:'Inter',sans-serif;color:var(--text);
   }
+  button.tag{transition:border-color .15s ease,color .15s ease;}
+  button.tag:hover{border-color:var(--accent);color:var(--accent-dark);}
   .tag button{background:none;border:none;color:var(--red);cursor:pointer;font-weight:700;}
 
   /* mobile sidebar */
@@ -489,19 +492,25 @@ const defaultState = () => ({
     { id:'autre',       nom:'Autres',                         montant: 6000 },
   ],
   categoriesDepenses: [
-    'Alimentation & Restauration','Transport','Hébergement / Logement',
-    'Location de salle & Matériel','Communication & Publicité',
-    'Santé & Secours','Décoration & Logistique','Divers / Imprévus'
+    { nom:'Commission Restauration', sousCategories:[] },
+    { nom:'Commission Finances', sousCategories:[] },
+    { nom:'Commission Transport', sousCategories:[] },
+    { nom:'Commission Secrétariat', sousCategories:[] },
+    { nom:'Commission Accueil', sousCategories:[] },
   ],
   participations: [],
   dons: [],
   depenses: [],
+  membres: [],
+  cotisations: [],
+  cotisationTarifs: { simple: 200, bureau: 250 },
+  cotisationStart: '2026-07',
 });
 
 let state = defaultState();
 let currentTab = 'dashboard';
-let editing = { participation:null, don:null, depense:null };
-let filters = { participation:{q:'',cat:'',statut:''}, don:{q:''}, depense:{cat:''} };
+let editing = { participation:null, don:null, depense:null, membre:null, cotisation:null };
+let filters = { participation:{q:'',cat:'',statut:''}, don:{q:''}, depense:{cat:''}, membre:{q:'',role:''} };
 
 /* ---------- persistance (localStorage du navigateur — fonctionne hors-ligne) ---------- */
 function loadState(){
@@ -510,6 +519,12 @@ function loadState(){
     if(raw){
       const parsed = JSON.parse(raw);
       state = Object.assign(defaultState(), parsed);
+      // migration : anciennes catégories de dépenses en texte simple -> objets avec sous-catégories
+      if(Array.isArray(state.categoriesDepenses)){
+        state.categoriesDepenses = state.categoriesDepenses.map(c=>
+          typeof c === 'string' ? { nom:c, sousCategories:[] } : { nom:c.nom, sousCategories:c.sousCategories||[] }
+        );
+      }
     }
   }catch(e){ /* pas de données existantes -> on garde les valeurs par défaut */ }
   renderAll();
@@ -597,12 +612,14 @@ const ICONS = {
   dons:'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="9" width="18" height="4" rx="1"/><rect x="5" y="13" width="14" height="8" rx="1"/><path d="M12 9v12M12 9c-1.5-3-6-3-6 0c0 1.3 1 2 2 2M12 9c1.5-3 6-3 6 0c0 1.3-1 2-2 2"/></svg>',
   depenses:'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2Z"/><path d="M9 8h6M9 12h6M9 16h3"/></svg>',
   parametres:'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 13a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V19a2 2 0 0 1-4 0v-.09A1.7 1.7 0 0 0 9 17.4a1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.55-1H3a2 2 0 0 1 0-4h.09A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34H9a1.7 1.7 0 0 0 1-1.55V3a2 2 0 0 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87V9a1.7 1.7 0 0 0 1.55 1H21a2 2 0 0 1 0 4h-.09a1.7 1.7 0 0 0-1.51 1Z"/></svg>',
+  cotisations:'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>',
 };
 const TABS = [
   { id:'dashboard',     label:'Tableau de bord' },
   { id:'participation', label:'Frais de participation' },
   { id:'dons',          label:'Dons' },
   { id:'depenses',      label:'Dépenses' },
+  { id:'cotisations',   label:'Cotisations' },
   { id:'parametres',    label:'Paramètres' },
 ];
 const TITLES = {
@@ -610,6 +627,7 @@ const TITLES = {
   participation:['Frais de participation','Enregistrement des montants envoyés par catégorie'],
   dons:['Dons','Enregistrement des dons reçus'],
   depenses:['Dépenses','Suivi des dépenses du camp'],
+  cotisations:['Cotisations','Caisse séparée — cotisations mensuelles des membres'],
   parametres:['Paramètres','Catégories, montants de référence et devise'],
 };
 
@@ -642,6 +660,7 @@ function renderAll(){
   if(currentTab==='participation') c.innerHTML = viewParticipation();
   if(currentTab==='dons') c.innerHTML = viewDons();
   if(currentTab==='depenses') c.innerHTML = viewDepenses();
+  if(currentTab==='cotisations') c.innerHTML = viewCotisations();
   if(currentTab==='parametres') c.innerHTML = viewParametres();
   attachHandlers();
 }
@@ -654,6 +673,53 @@ function totalDons(){ return state.dons.reduce((s,d)=>s+Number(d.montant||0),0);
 function totalDepenses(){ return state.depenses.reduce((s,d)=>s+Number(d.montant||0),0); }
 function grandTotal(){ return totalParticipation()+totalDons()-totalDepenses(); }
 
+/* ---------- Cotisations (caisse séparée) ---------- */
+const ROLE_LABELS = { simple:'Membre simple', bureau:'Bureau / Conseiller' };
+function monthKeyOf(dateStr){ return (dateStr||'').slice(0,7); } // 'YYYY-MM-DD' -> 'YYYY-MM'
+function todayMonthKey(){ return todayISO().slice(0,7); }
+function addMonths(monthKey, n){
+  const [y,m] = monthKey.split('-').map(Number);
+  const d = new Date(y, (m-1)+n, 1);
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
+}
+function monthsBetween(startKey, endKey){
+  const list = [];
+  let cur = startKey;
+  let guard = 0;
+  while(cur <= endKey && guard < 600){
+    list.push(cur);
+    cur = addMonths(cur, 1);
+    guard++;
+  }
+  return list;
+}
+const MOIS_FR = ['Janv.','Févr.','Mars','Avr.','Mai','Juin','Juil.','Août','Sept.','Oct.','Nov.','Déc.'];
+function monthLabel(monthKey){
+  const [y,m] = monthKey.split('-').map(Number);
+  return `${MOIS_FR[m-1]} ${y}`;
+}
+function tarifRole(role){ return Number(state.cotisationTarifs[role]||0); }
+function moisDusMembre(membre){
+  const debut = monthKeyOf(membre.dateAdhesion) > state.cotisationStart ? monthKeyOf(membre.dateAdhesion) : state.cotisationStart;
+  const fin = todayMonthKey();
+  if(debut > fin) return [];
+  return monthsBetween(debut, fin);
+}
+function cotisationsMembre(membreId){ return state.cotisations.filter(c=>c.membreId===membreId); }
+function paiementsParMois(membreId, mois){ return cotisationsMembre(membreId).filter(c=>c.mois===mois).reduce((s,c)=>s+Number(c.montant||0),0); }
+function totalPayeMembre(membreId){ return cotisationsMembre(membreId).reduce((s,c)=>s+Number(c.montant||0),0); }
+function totalAttenduMembre(membre){ return moisDusMembre(membre).length * tarifRole(membre.role); }
+function arrieresMembre(membre){ return totalAttenduMembre(membre) - totalPayeMembre(membre.id); }
+function totalCotisationsCollectees(){ return state.cotisations.reduce((s,c)=>s+Number(c.montant||0),0); }
+function totalArrieresGlobal(){ return state.membres.reduce((s,m)=>s+Math.max(0,arrieresMembre(m)),0); }
+function collecteDuMois(monthKey){ return state.cotisations.filter(c=>c.mois===monthKey).reduce((s,c)=>s+Number(c.montant||0),0); }
+function attenduDuMois(monthKey){
+  return state.membres.reduce((s,m)=>{
+    const debut = monthKeyOf(m.dateAdhesion) > state.cotisationStart ? monthKeyOf(m.dateAdhesion) : state.cotisationStart;
+    return s + (monthKey >= debut ? tarifRole(m.role) : 0);
+  }, 0);
+}
+
 function participationParCategorie(){
   return state.categoriesParticipation.map(cat=>{
     const entries = state.participations.filter(p=>p.categorieId===cat.id);
@@ -664,9 +730,9 @@ function participationParCategorie(){
 }
 function depensesParCategorie(){
   return state.categoriesDepenses.map(cat=>{
-    const entries = state.depenses.filter(d=>d.categorie===cat);
+    const entries = state.depenses.filter(d=>d.categorie===cat.nom);
     const total = entries.reduce((s,d)=>s+Number(d.montant||0),0);
-    return { cat, count:entries.length, total };
+    return { cat: cat.nom, count:entries.length, total };
   });
 }
 
@@ -777,6 +843,7 @@ function viewParticipation(){
           <div class="field"><label>Date</label><input type="date" name="date" required value="${edit? edit.date : todayISO()}"></div>
           <div class="field"><label>Nom</label><input type="text" name="nom" required placeholder="Kabongo" value="${edit? escapeHtml(edit.nom):''}"></div>
           <div class="field"><label>Prénom</label><input type="text" name="prenom" required placeholder="Marie" value="${edit? escapeHtml(edit.prenom):''}"></div>
+          <div class="field"><label>Téléphone</label><input type="tel" name="telephone" placeholder="+226 70 00 00 00" value="${edit? escapeHtml(edit.telephone||''):''}"></div>
           <div class="field">
             <label>Catégorie</label>
             <select name="categorieId" required>
@@ -811,7 +878,7 @@ function viewParticipation(){
     <div class="table-wrap">
       <table>
         <thead><tr>
-          <th>Date</th><th>Nom</th><th>Prénom</th><th>Catégorie</th>
+          <th>Date</th><th>Nom</th><th>Prénom</th><th>Téléphone</th><th>Catégorie</th>
           <th class="num">Attendu</th><th class="num">Reçu</th><th>Statut</th><th></th>
         </tr></thead>
         <tbody>
@@ -821,6 +888,7 @@ function viewParticipation(){
               <td>${fmtDate(p.date)}</td>
               <td>${escapeHtml(p.nom)}</td>
               <td>${escapeHtml(p.prenom)}</td>
+              <td>${escapeHtml(p.telephone||'—')}</td>
               <td><span class="cat-pill">${escapeHtml(catName(p.categorieId))}</span></td>
               <td class="num">${fmt(fee)}</td>
               <td class="num">${fmt(p.montant)}</td>
@@ -830,9 +898,9 @@ function viewParticipation(){
                 <button data-del="${p.id}" class="danger">Supprimer</button>
               </div></td>
             </tr>`;
-          }).join('') : `<tr class="empty-row"><td colspan="8">Aucune entrée pour le moment. Ajoutez la première participation ci-dessus.</td></tr>`}
+          }).join('') : `<tr class="empty-row"><td colspan="9">Aucune entrée pour le moment. Ajoutez la première participation ci-dessus.</td></tr>`}
         </tbody>
-        ${list.length?`<tfoot><tr><td colspan="5">Total affiché</td><td class="num">${fmt(total)}</td><td colspan="2"></td></tr></tfoot>`:''}
+        ${list.length?`<tfoot><tr><td colspan="6">Total affiché</td><td class="num">${fmt(total)}</td><td colspan="2"></td></tr></tfoot>`:''}
       </table>
     </div>
   `;
@@ -901,24 +969,53 @@ function filteredDepenses(){
   const {cat} = filters.depense;
   return state.depenses.filter(d=> !cat || d.categorie===cat).sort((a,b)=> b.date.localeCompare(a.date));
 }
+function depensesFrequentes(){
+  const counts = new Map();
+  state.depenses.forEach(d=>{
+    const key = d.categorie + '|||' + (d.sousCategorie||'');
+    if(!counts.has(key)) counts.set(key, { categorie:d.categorie, sousCategorie:d.sousCategorie||'', description:d.description, count:0 });
+    counts.get(key).count++;
+  });
+  return [...counts.values()].sort((a,b)=>b.count-a.count).slice(0,6);
+}
 function viewDepenses(){
   const edit = editing.depense ? state.depenses.find(d=>d.id===editing.depense) : null;
   const list = filteredDepenses();
   const total = list.reduce((s,d)=>s+Number(d.montant||0),0);
+  const selectedCatObj = state.categoriesDepenses.find(c=>c.nom === (edit?edit.categorie:state.categoriesDepenses[0]?.nom)) || state.categoriesDepenses[0];
 
   return `
     <div class="form-card">
       <div class="section-title">${edit?'Modifier la dépense':'Ajouter une dépense'}</div>
+      ${!edit && depensesFrequentes().length ? `
+        <div style="margin-bottom:16px;">
+          <div style="font-family:'JetBrains Mono',monospace;font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);margin-bottom:8px;">Dépenses fréquentes — clique pour préremplir</div>
+          <div class="tag-list">
+            ${depensesFrequentes().map(f=>`
+              <button type="button" class="tag" data-quickfill-cat="${escapeHtml(f.categorie)}" data-quickfill-sub="${escapeHtml(f.sousCategorie)}" data-quickfill-desc="${escapeHtml(f.description)}" style="cursor:pointer;border:1px solid var(--border);">
+                ${escapeHtml(f.sousCategorie || f.categorie)}
+              </button>
+            `).join('')}
+          </div>
+        </div>
+      ` : ''}
       <form id="formDepense">
         <div class="form-grid">
           <div class="field"><label>Date</label><input type="date" name="date" required value="${edit?edit.date:todayISO()}"></div>
           <div class="field">
             <label>Catégorie</label>
-            <select name="categorie" required>
-              ${state.categoriesDepenses.map(c=>`<option value="${escapeHtml(c)}" ${edit&&edit.categorie===c?'selected':''}>${escapeHtml(c)}</option>`).join('')}
+            <select name="categorie" id="depCategorieSelect" required>
+              ${state.categoriesDepenses.map(c=>`<option value="${escapeHtml(c.nom)}" ${edit&&edit.categorie===c.nom?'selected':''}>${escapeHtml(c.nom)}</option>`).join('')}
             </select>
           </div>
-          <div class="field" style="grid-column:span 2;"><label>Description</label><input type="text" name="description" required placeholder="Ex: Achat de riz et huile" value="${edit?escapeHtml(edit.description):''}"></div>
+          <div class="field">
+            <label>Sous-catégorie <span style="text-transform:none;font-weight:400;">(précise l'achat)</span></label>
+            <input type="text" name="sousCategorie" id="depSousCategorieInput" list="sousCategorieList" placeholder="Ex: 1 sac de riz" value="${edit?escapeHtml(edit.sousCategorie||''):''}">
+            <datalist id="sousCategorieList">
+              ${(selectedCatObj?.sousCategories||[]).map(sc=>`<option value="${escapeHtml(sc)}">`).join('')}
+            </datalist>
+          </div>
+          <div class="field" style="grid-column:span 2;"><label>Description <span style="text-transform:none;font-weight:400;">(facultatif)</span></label><input type="text" name="description" id="depDescriptionInput" placeholder="Laisse vide pour reprendre la sous-catégorie" value="${edit?escapeHtml(edit.description):''}"></div>
           <div class="field"><label>Montant (FCFA)</label><input type="text" inputmode="decimal" name="montant" required placeholder="Ex: 6800 ou 6800f" value="${edit?edit.montant:''}"></div>
         </div>
         <div class="form-actions">
@@ -931,7 +1028,7 @@ function viewDepenses(){
     <div class="toolbar">
       <select id="filterCatDepense">
         <option value="">Toutes les catégories</option>
-        ${state.categoriesDepenses.map(c=>`<option value="${escapeHtml(c)}" ${filters.depense.cat===c?'selected':''}>${escapeHtml(c)}</option>`).join('')}
+        ${state.categoriesDepenses.map(c=>`<option value="${escapeHtml(c.nom)}" ${filters.depense.cat===c.nom?'selected':''}>${escapeHtml(c.nom)}</option>`).join('')}
       </select>
       <span class="count">${list.length} dépense(s)</span>
     </div>
@@ -939,21 +1036,22 @@ function viewDepenses(){
     <div class="scroll-hint">← Glisse le tableau vers la gauche pour voir toutes les colonnes →</div>
     <div class="table-wrap">
       <table>
-        <thead><tr><th>Date</th><th>Catégorie</th><th>Description</th><th class="num">Montant</th><th></th></tr></thead>
+        <thead><tr><th>Date</th><th>Catégorie</th><th>Sous-catégorie</th><th>Description</th><th class="num">Montant</th><th></th></tr></thead>
         <tbody>
           ${list.length? list.map(d=>`
             <tr>
               <td>${fmtDate(d.date)}</td>
               <td><span class="cat-pill" style="background:var(--red-soft);color:var(--red);">${escapeHtml(d.categorie)}</span></td>
+              <td>${escapeHtml(d.sousCategorie||'—')}</td>
               <td>${escapeHtml(d.description)}</td>
               <td class="num">${fmt(d.montant)}</td>
               <td><div class="row-actions">
                 <button data-edit="${d.id}">Modifier</button>
                 <button data-del="${d.id}" class="danger">Supprimer</button>
               </div></td>
-            </tr>`).join('') : `<tr class="empty-row"><td colspan="5">Aucune dépense enregistrée pour le moment.</td></tr>`}
+            </tr>`).join('') : `<tr class="empty-row"><td colspan="6">Aucune dépense enregistrée pour le moment.</td></tr>`}
         </tbody>
-        ${list.length?`<tfoot><tr><td colspan="3">Total des dépenses</td><td class="num">${fmt(total)}</td><td></td></tr></tfoot>`:''}
+        ${list.length?`<tfoot><tr><td colspan="4">Total des dépenses</td><td class="num">${fmt(total)}</td><td></td></tr></tfoot>`:''}
       </table>
     </div>
   `;
@@ -991,13 +1089,25 @@ function viewParametres(){
       </div>
       <div class="panel">
         <div class="section-title">Catégories de dépenses</div>
-        <div style="display:flex;gap:8px;">
-          <input type="text" id="newDepCat" placeholder="Nouvelle catégorie…" style="flex:1;padding:9px 10px;border:1px solid var(--paper-line);border-radius:6px;">
+        <div style="display:flex;gap:8px;margin-bottom:16px;">
+          <input type="text" id="newDepCat" placeholder="Nouvelle catégorie… (ex: Commission Restauration)" style="flex:1;padding:9px 10px;border:1px solid var(--border);border-radius:6px;">
           <button class="btn btn-outline" id="addDepCat">Ajouter</button>
         </div>
-        <div class="tag-list">
-          ${state.categoriesDepenses.map(c=>`<span class="tag">${escapeHtml(c)}<button data-remove-cat="${escapeHtml(c)}">✕</button></span>`).join('')}
-        </div>
+        ${state.categoriesDepenses.map(cat=>`
+          <div style="margin-bottom:14px;padding-bottom:14px;border-bottom:1px solid var(--border);">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+              <b style="font-size:13.5px;">${escapeHtml(cat.nom)}</b>
+              <button data-remove-cat="${escapeHtml(cat.nom)}" style="background:none;border:none;color:var(--red);cursor:pointer;font-size:11.5px;">Supprimer la catégorie</button>
+            </div>
+            <div class="tag-list">
+              ${cat.sousCategories.length? cat.sousCategories.map(sc=>`<span class="tag">${escapeHtml(sc)}<button data-remove-subcat="${escapeHtml(cat.nom)}|||${escapeHtml(sc)}">✕</button></span>`).join('') : '<span style="font-size:11.5px;color:var(--muted);">Aucune sous-catégorie pour l\u2019instant</span>'}
+            </div>
+            <div style="display:flex;gap:8px;margin-top:10px;">
+              <input type="text" data-newsubcat-input="${escapeHtml(cat.nom)}" placeholder="Nouvelle sous-catégorie… (ex: Riz)" style="flex:1;padding:7px 9px;border:1px solid var(--border);border-radius:6px;font-size:12.5px;">
+              <button class="btn btn-outline" data-addsubcat="${escapeHtml(cat.nom)}" style="padding:7px 14px;font-size:12px;">+ Ajouter</button>
+            </div>
+          </div>
+        `).join('')}
       </div>
       <div class="panel">
         <div class="section-title">Accès (email, mot de passe, empreinte)</div>
@@ -1032,6 +1142,192 @@ function viewParametres(){
   `;
 }
 
+function filteredMembres(){
+  const {q, role} = filters.membre;
+  return state.membres.filter(m=>{
+    const matchQ = !q || (m.nom+' '+m.prenom).toLowerCase().includes(q.toLowerCase());
+    const matchRole = !role || m.role===role;
+    return matchQ && matchRole;
+  }).sort((a,b)=> (a.nom+a.prenom).localeCompare(b.nom+b.prenom));
+}
+
+function viewCotisations(){
+  const edit = editing.membre ? state.membres.find(m=>m.id===editing.membre) : null;
+  const editP = editing.cotisation ? state.cotisations.find(c=>c.id===editing.cotisation) : null;
+  const list = filteredMembres();
+  const totalCollecte = totalCotisationsCollectees();
+  const totalArrieres = totalArrieresGlobal();
+  const moisCourant = todayMonthKey();
+  const collecteMois = collecteDuMois(moisCourant);
+  const attenduMois = attenduDuMois(moisCourant);
+  const enRetard = state.membres.filter(m=>arrieresMembre(m)>0).sort((a,b)=>arrieresMembre(b)-arrieresMembre(a));
+  const moisGrille = monthsBetween(state.cotisationStart, moisCourant);
+
+  return `
+    <div class="hero-block">
+      <div class="hero-top">
+        <div>
+          <div class="hero-label">Cotisations — ${monthLabel(moisCourant)}</div>
+          <div class="hero-figure">${fmt(collecteMois)}</div>
+        </div>
+        <div class="hero-formula">
+          Attendu ce mois : <b>${fmt(attenduMois)}</b><br>
+          Total arriérés : <b>${fmt(totalArrieres)}</b>
+        </div>
+      </div>
+    </div>
+
+    <div class="cards-row">
+      <div class="card green"><div class="label">Total collecté depuis ${monthLabel(state.cotisationStart)}</div><div class="value">${fmt(totalCollecte)}</div></div>
+      <div class="card"><div class="label">Membres enregistrés</div><div class="value">${state.membres.length}</div></div>
+      <div class="card red"><div class="label">Total arriérés</div><div class="value">${fmt(totalArrieres)}</div></div>
+    </div>
+
+    ${enRetard.length ? `
+    <div class="panel" style="margin-bottom:22px;">
+      <div class="section-title">Membres en retard</div>
+      ${enRetard.map(m=>`
+        <div class="bar-row">
+          <div class="bar-label"><span>${escapeHtml(m.nom)} ${escapeHtml(m.prenom)} <span style="color:var(--muted)">(${ROLE_LABELS[m.role]})</span></span><b style="color:var(--red)">${fmt(arrieresMembre(m))}</b></div>
+        </div>`).join('')}
+    </div>` : ''}
+
+    <div class="form-card">
+      <div class="section-title">${edit? "Modifier le membre" : "Ajouter un membre"}</div>
+      <form id="formMembre">
+        <div class="form-grid">
+          <div class="field"><label>Nom</label><input type="text" name="nom" required value="${edit?escapeHtml(edit.nom):''}"></div>
+          <div class="field"><label>Prénom</label><input type="text" name="prenom" required value="${edit?escapeHtml(edit.prenom):''}"></div>
+          <div class="field"><label>Téléphone</label><input type="tel" name="telephone" value="${edit?escapeHtml(edit.telephone||''):''}"></div>
+          <div class="field">
+            <label>Rôle</label>
+            <select name="role" required>
+              <option value="simple" ${edit&&edit.role==='simple'?'selected':''}>Membre simple — ${fmt(state.cotisationTarifs.simple)}/mois</option>
+              <option value="bureau" ${edit&&edit.role==='bureau'?'selected':''}>Bureau / Conseiller — ${fmt(state.cotisationTarifs.bureau)}/mois</option>
+            </select>
+          </div>
+          <div class="field"><label>Date d'adhésion</label><input type="date" name="dateAdhesion" required value="${edit?edit.dateAdhesion:todayISO()}"></div>
+        </div>
+        <div class="form-actions">
+          <button type="submit" class="btn btn-gold">${edit?'Mettre à jour':'+ Ajouter le membre'}</button>
+          ${edit?`<button type="button" class="btn btn-outline" id="cancelEditMembre">Annuler</button>`:''}
+        </div>
+      </form>
+    </div>
+
+    <div class="toolbar">
+      <input type="text" id="searchMembre" placeholder="Rechercher un membre…" value="${escapeHtml(filters.membre.q)}">
+      <select id="filterRoleMembre">
+        <option value="">Tous les rôles</option>
+        <option value="simple" ${filters.membre.role==='simple'?'selected':''}>Membre simple</option>
+        <option value="bureau" ${filters.membre.role==='bureau'?'selected':''}>Bureau / Conseiller</option>
+      </select>
+      <span class="count">${list.length} membre(s)</span>
+    </div>
+
+    <div class="scroll-hint">← Glisse le tableau vers la gauche pour voir toutes les colonnes →</div>
+    <div class="table-wrap" style="margin-bottom:26px;">
+      <table>
+        <thead><tr>
+          <th>Nom</th><th>Prénom</th><th>Téléphone</th><th>Rôle</th><th>Adhésion</th>
+          <th class="num">Payé (total)</th><th class="num">Arriéré</th><th></th>
+        </tr></thead>
+        <tbody>
+          ${list.length? list.map(m=>{
+            const arr = arrieresMembre(m);
+            return `<tr>
+              <td>${escapeHtml(m.nom)}</td>
+              <td>${escapeHtml(m.prenom)}</td>
+              <td>${escapeHtml(m.telephone||'—')}</td>
+              <td><span class="cat-pill">${ROLE_LABELS[m.role]}</span></td>
+              <td>${fmtDate(m.dateAdhesion)}</td>
+              <td class="num">${fmt(totalPayeMembre(m.id))}</td>
+              <td class="num" style="color:${arr>0?'var(--red)':'var(--accent-dark)'};font-weight:600;">${arr>0? fmt(arr) : 'À jour'}</td>
+              <td><div class="row-actions">
+                <button data-editmembre="${m.id}">Modifier</button>
+                <button data-delmembre="${m.id}" class="danger">Supprimer</button>
+              </div></td>
+            </tr>`;
+          }).join('') : `<tr class="empty-row"><td colspan="8">Aucun membre enregistré pour le moment.</td></tr>`}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="form-card">
+      <div class="section-title">${editP? "Modifier le paiement" : "Enregistrer un paiement de cotisation"}</div>
+      ${state.membres.length ? `
+      <form id="formCotisation">
+        <div class="form-grid">
+          <div class="field">
+            <label>Membre</label>
+            <select name="membreId" required>
+              ${state.membres.map(m=>`<option value="${m.id}" ${editP&&editP.membreId===m.id?'selected':''}>${escapeHtml(m.nom)} ${escapeHtml(m.prenom)}</option>`).join('')}
+            </select>
+          </div>
+          <div class="field"><label>Mois concerné</label><input type="month" name="mois" required value="${editP?editP.mois:todayMonthKey()}"></div>
+          <div class="field"><label>Montant</label><input type="text" inputmode="decimal" name="montant" required placeholder="Ex: 200" value="${editP?editP.montant:''}"></div>
+          <div class="field"><label>Date de paiement</label><input type="date" name="date" required value="${editP?editP.date:todayISO()}"></div>
+        </div>
+        <div class="form-actions">
+          <button type="submit" class="btn btn-gold">${editP?'Mettre à jour':'+ Enregistrer le paiement'}</button>
+          ${editP?`<button type="button" class="btn btn-outline" id="cancelEditCotisation">Annuler</button>`:''}
+        </div>
+      </form>` : `<p style="font-size:12.5px;color:var(--muted);">Ajoute d'abord un membre ci-dessus.</p>`}
+    </div>
+
+    <div class="section-title">Historique des paiements</div>
+    <div class="scroll-hint">← Glisse le tableau vers la gauche pour voir toutes les colonnes →</div>
+    <div class="table-wrap" style="margin-bottom:26px;">
+      <table>
+        <thead><tr><th>Date</th><th>Membre</th><th>Mois</th><th class="num">Montant</th><th></th></tr></thead>
+        <tbody>
+          ${state.cotisations.length? [...state.cotisations].sort((a,b)=>b.date.localeCompare(a.date)).map(c=>{
+            const m = state.membres.find(mm=>mm.id===c.membreId);
+            return `<tr>
+              <td>${fmtDate(c.date)}</td>
+              <td>${m? escapeHtml(m.nom)+' '+escapeHtml(m.prenom) : '—'}</td>
+              <td>${monthLabel(c.mois)}</td>
+              <td class="num">${fmt(c.montant)}</td>
+              <td><div class="row-actions">
+                <button data-editcot="${c.id}">Modifier</button>
+                <button data-delcot="${c.id}" class="danger">Supprimer</button>
+              </div></td>
+            </tr>`;
+          }).join('') : `<tr class="empty-row"><td colspan="5">Aucun paiement enregistré.</td></tr>`}
+        </tbody>
+        ${state.cotisations.length?`<tfoot><tr><td colspan="3">Total collecté</td><td class="num">${fmt(totalCollecte)}</td><td></td></tr></tfoot>`:''}
+      </table>
+    </div>
+
+    ${state.membres.length ? `
+    <div class="section-title">Grille de paiement (${monthLabel(state.cotisationStart)} → ${monthLabel(moisCourant)})</div>
+    <div class="scroll-hint">← Glisse le tableau vers la gauche pour voir tous les mois →</div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>Membre</th>
+          ${moisGrille.map(mk=>`<th class="num">${monthLabel(mk)}</th>`).join('')}
+        </tr></thead>
+        <tbody>
+          ${state.membres.map(m=>{
+            const debut = monthKeyOf(m.dateAdhesion) > state.cotisationStart ? monthKeyOf(m.dateAdhesion) : state.cotisationStart;
+            return `<tr>
+              <td>${escapeHtml(m.nom)} ${escapeHtml(m.prenom)}</td>
+              ${moisGrille.map(mk=>{
+                if(mk < debut) return `<td class="num" style="color:var(--border);">—</td>`;
+                const paye = paiementsParMois(m.id, mk);
+                const tarif = tarifRole(m.role);
+                const ok = paye >= tarif;
+                return `<td class="num" style="color:${ok?'var(--accent-dark)':'var(--red)'};font-weight:${ok?400:600};">${paye>0?fmt(paye):'✕'}</td>`;
+              }).join('')}
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>` : ''}
+  `;
+}
+
 /* =========================================================
    HANDLERS
    ========================================================= */
@@ -1046,6 +1342,7 @@ function attachHandlers(){
       const entry = {
         id: editing.participation || uid(),
         date: fd.get('date'), nom: fd.get('nom').trim(), prenom: fd.get('prenom').trim(),
+        telephone: fd.get('telephone').trim(),
         categorieId: fd.get('categorieId'), montant: parseMontant(fd.get('montant')),
       };
       if(editing.participation){
@@ -1090,7 +1387,16 @@ function attachHandlers(){
     fdep.addEventListener('submit', e=>{
       e.preventDefault();
       const fd = new FormData(fdep);
-      const entry = { id: editing.depense||uid(), date: fd.get('date'), categorie: fd.get('categorie'), description: fd.get('description').trim(), montant: parseMontant(fd.get('montant')) };
+      const sousCat = fd.get('sousCategorie').trim();
+      const categorie = fd.get('categorie');
+      const descriptionRaw = fd.get('description').trim();
+      const entry = { id: editing.depense||uid(), date: fd.get('date'), categorie, sousCategorie: sousCat, description: descriptionRaw || sousCat || categorie, montant: parseMontant(fd.get('montant')) };
+      if(entry.sousCategorie){
+        const catObj = state.categoriesDepenses.find(c=>c.nom===entry.categorie);
+        if(catObj && !catObj.sousCategories.includes(entry.sousCategorie)){
+          catObj.sousCategories.push(entry.sousCategorie);
+        }
+      }
       if(editing.depense){
         const idx = state.depenses.findIndex(d=>d.id===editing.depense);
         state.depenses[idx] = entry; toast('Dépense mise à jour');
@@ -1100,7 +1406,102 @@ function attachHandlers(){
     const cancelBtn = document.getElementById('cancelEditDepense');
     if(cancelBtn) cancelBtn.addEventListener('click', ()=>{ editing.depense=null; renderAll(); });
   }
+  document.getElementById('depCategorieSelect')?.addEventListener('change', e=>{
+    const catObj = state.categoriesDepenses.find(c=>c.nom===e.target.value);
+    const dl = document.getElementById('sousCategorieList');
+    if(dl) dl.innerHTML = (catObj?.sousCategories||[]).map(sc=>`<option value="${escapeHtml(sc)}">`).join('');
+    const scInput = document.getElementById('depSousCategorieInput');
+    if(scInput) scInput.value = '';
+  });
+  document.querySelectorAll('[data-quickfill-cat]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const catSelect = document.getElementById('depCategorieSelect');
+      const scInput = document.getElementById('depSousCategorieInput');
+      const descInput = document.getElementById('depDescriptionInput');
+      if(catSelect) catSelect.value = btn.dataset.quickfillCat;
+      if(scInput) scInput.value = btn.dataset.quickfillSub;
+      if(descInput) descInput.value = btn.dataset.quickfillDesc;
+      const catObj = state.categoriesDepenses.find(c=>c.nom===btn.dataset.quickfillCat);
+      const dl = document.getElementById('sousCategorieList');
+      if(dl) dl.innerHTML = (catObj?.sousCategories||[]).map(sc=>`<option value="${escapeHtml(sc)}">`).join('');
+      document.querySelector('input[name="montant"]')?.focus();
+    });
+  });
   document.getElementById('filterCatDepense')?.addEventListener('change', e=>{ filters.depense.cat = e.target.value; renderAll(); });
+
+  // Cotisations — Membres
+  const fm = document.getElementById('formMembre');
+  if(fm){
+    fm.addEventListener('submit', e=>{
+      e.preventDefault();
+      const fd = new FormData(fm);
+      const entry = {
+        id: editing.membre || uid(),
+        nom: fd.get('nom').trim(), prenom: fd.get('prenom').trim(),
+        telephone: fd.get('telephone').trim(), role: fd.get('role'),
+        dateAdhesion: fd.get('dateAdhesion'),
+      };
+      if(editing.membre){
+        const idx = state.membres.findIndex(m=>m.id===editing.membre);
+        state.membres[idx] = entry; toast('Membre mis à jour');
+      }else{ state.membres.push(entry); toast('Membre ajouté'); }
+      editing.membre = null; saveState(); renderAll();
+    });
+    document.getElementById('cancelEditMembre')?.addEventListener('click', ()=>{ editing.membre=null; renderAll(); });
+  }
+  document.getElementById('searchMembre')?.addEventListener('input', e=>{ filters.membre.q = e.target.value; renderAll(); });
+  document.getElementById('filterRoleMembre')?.addEventListener('change', e=>{ filters.membre.role = e.target.value; renderAll(); });
+  document.querySelectorAll('[data-editmembre]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{ editing.membre = btn.dataset.editmembre; renderAll(); document.querySelectorAll('.form-card')[0]?.scrollIntoView({behavior:'smooth'}); });
+  });
+  document.querySelectorAll('[data-delmembre]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const id = btn.dataset.delmembre;
+      if(btn.dataset.confirming){
+        state.membres = state.membres.filter(m=>m.id!==id);
+        state.cotisations = state.cotisations.filter(c=>c.membreId!==id);
+        toast('Membre supprimé'); saveState(); renderAll();
+      }else{
+        btn.dataset.confirming='1'; btn.textContent='Confirmer ?';
+        setTimeout(()=>{ if(btn){ btn.dataset.confirming=''; btn.textContent='Supprimer'; } }, 2500);
+      }
+    });
+  });
+
+  // Cotisations — Paiements
+  const fc = document.getElementById('formCotisation');
+  if(fc){
+    fc.addEventListener('submit', e=>{
+      e.preventDefault();
+      const fd = new FormData(fc);
+      const entry = {
+        id: editing.cotisation || uid(),
+        membreId: fd.get('membreId'), mois: fd.get('mois'),
+        montant: parseMontant(fd.get('montant')), date: fd.get('date'),
+      };
+      if(editing.cotisation){
+        const idx = state.cotisations.findIndex(c=>c.id===editing.cotisation);
+        state.cotisations[idx] = entry; toast('Paiement mis à jour');
+      }else{ state.cotisations.push(entry); toast('Paiement enregistré'); }
+      editing.cotisation = null; saveState(); renderAll();
+    });
+    document.getElementById('cancelEditCotisation')?.addEventListener('click', ()=>{ editing.cotisation=null; renderAll(); });
+  }
+  document.querySelectorAll('[data-editcot]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{ editing.cotisation = btn.dataset.editcot; renderAll(); });
+  });
+  document.querySelectorAll('[data-delcot]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const id = btn.dataset.delcot;
+      if(btn.dataset.confirming){
+        state.cotisations = state.cotisations.filter(c=>c.id!==id);
+        toast('Paiement supprimé'); saveState(); renderAll();
+      }else{
+        btn.dataset.confirming='1'; btn.textContent='Confirmer ?';
+        setTimeout(()=>{ if(btn){ btn.dataset.confirming=''; btn.textContent='Supprimer'; } }, 2500);
+      }
+    });
+  });
 
   // Edit / delete row buttons (works across tabs)
   document.querySelectorAll('[data-edit]').forEach(btn=>{
@@ -1141,15 +1542,37 @@ function attachHandlers(){
   document.getElementById('addDepCat')?.addEventListener('click', ()=>{
     const inp = document.getElementById('newDepCat');
     const val = inp.value.trim();
-    if(val && !state.categoriesDepenses.includes(val)){
-      state.categoriesDepenses.push(val); saveState(); renderAll();
+    if(val && !state.categoriesDepenses.some(c=>c.nom===val)){
+      state.categoriesDepenses.push({ nom:val, sousCategories:[] }); saveState(); renderAll();
     }
   });
   document.querySelectorAll('[data-remove-cat]').forEach(btn=>{
     btn.addEventListener('click', ()=>{
       const cat = btn.dataset.removeCat;
-      state.categoriesDepenses = state.categoriesDepenses.filter(c=>c!==cat);
+      state.categoriesDepenses = state.categoriesDepenses.filter(c=>c.nom!==cat);
       saveState(); renderAll();
+    });
+  });
+  document.querySelectorAll('[data-addsubcat]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const catNom = btn.dataset.addsubcat;
+      const inp = document.querySelector(`[data-newsubcat-input="${CSS.escape(catNom)}"]`);
+      const val = inp ? inp.value.trim() : '';
+      if(!val) return;
+      const catObj = state.categoriesDepenses.find(c=>c.nom===catNom);
+      if(catObj && !catObj.sousCategories.includes(val)){
+        catObj.sousCategories.push(val); saveState(); renderAll();
+      }
+    });
+  });
+  document.querySelectorAll('[data-remove-subcat]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const [catNom, subNom] = btn.dataset.removeSubcat.split('|||');
+      const catObj = state.categoriesDepenses.find(c=>c.nom===catNom);
+      if(catObj){
+        catObj.sousCategories = catObj.sousCategories.filter(sc=>sc!==subNom);
+        saveState(); renderAll();
+      }
     });
   });
   const resetBtn = document.getElementById('resetAll');
@@ -1221,7 +1644,7 @@ function buildExportHTML(){
   const depCat = depensesParCategorie();
   const now = new Date().toLocaleDateString('fr-FR', {year:'numeric',month:'long',day:'numeric'});
 
-  // --- Feuille Résumé ---
+  // --- Feuille Résumé (uniquement les totaux généraux — le détail est dans chaque feuille dédiée) ---
   const sheetResume = `
     <table cellspacing="0" cellpadding="0">
       ${bannerRow('Rapport Financier', 2)}
@@ -1232,26 +1655,7 @@ function buildExportHTML(){
       <tr>${tdCell('Total des dépenses','font-weight:bold;')}${tdNum(tdep,`color:${XL.red};font-weight:bold;`)}</tr>
       ${totalRow('GRAND TOTAL — Participation + Dons − Dépenses', gt, 2, XL.ink)}
       ${spacerRow(2)}
-      ${sectionRow('Détail par catégorie de participation', 6)}
-      <tr>${thCell('Catégorie','left')}${thCell('Personnes','right')}${thCell('Montant fixé','right')}${thCell('Total attendu','right')}${thCell('Total reçu','right')}${thCell('Écart','right')}</tr>
-      ${parCat.map((c,i)=>`<tr style="background:${i%2? XL.zebra:'#ffffff'};">
-        ${tdCell(escapeHtml(c.cat.nom))}
-        ${tdCell(String(c.count),'text-align:right;')}
-        ${tdNum(c.cat.montant)}
-        ${tdNum(c.attendu)}
-        ${tdNum(c.total)}
-        <td style="mso-number-format:'#,##0';text-align:right;font-family:Calibri,sans-serif;font-size:12px;padding:8px 12px;border:1px solid ${XL.border};color:${c.ecart<0?XL.red:XL.accentDark};font-weight:bold;">${num(c.ecart)}</td>
-      </tr>`).join('')}
-      ${totalRow('Total participation', tp, 6, XL.accentDark)}
-      ${spacerRow(6)}
-      ${sectionRow('Détail par catégorie de dépense', 6)}
-      <tr>${thCell('Catégorie','left')}${thCell('Nb. lignes','right')}${thCell('Total','right')}<th colspan="3" style="border:1px solid ${XL.ink};background:${XL.ink};"></th></tr>
-      ${depCat.filter(c=>c.count>0).map((c,i)=>`<tr style="background:${i%2? XL.zebra:'#ffffff'};">
-        ${tdCell(escapeHtml(c.cat))}
-        ${tdCell(String(c.count),'text-align:right;')}
-        <td colspan="4" style="mso-number-format:'#,##0';text-align:right;font-family:Calibri,sans-serif;font-size:12px;padding:8px 12px;border:1px solid ${XL.border};color:${XL.red};font-weight:bold;">${num(c.total)}</td>
-      </tr>`).join('') || `<tr>${tdCell('Aucune dépense enregistrée.','font-style:italic;color:'+XL.muted+';')}</tr>`}
-      ${totalRow('Total dépenses', tdep, 6, XL.red)}
+      <tr><td colspan="2" style="padding:4px 12px;font-family:Calibri,sans-serif;font-size:11px;font-style:italic;color:${XL.muted};border:none;">Le détail complet de chaque poste se trouve dans les feuilles "Participation", "Dons" et "Dépenses".</td></tr>
     </table>`;
 
   // --- Feuille Participation ---
@@ -1288,35 +1692,61 @@ function buildExportHTML(){
       ${totalRow('TOTAL DES DONS', tdns, 4, XL.indigo)}
     </table>`;
 
-  // --- Feuille Dépenses (regroupée par catégorie, comme un vrai rapport) ---
+  // --- Feuille Dépenses (grille stricte à 5 colonnes : Date / Catégorie / Sous-catégorie / Description / Montant) ---
+  const catNoms = state.categoriesDepenses.map(c=>c.nom);
   const depGroups = state.categoriesDepenses
-    .map(cat => ({ cat, entries: state.depenses.filter(d=>d.categorie===cat).sort((a,b)=>a.date.localeCompare(b.date)) }))
+    .map(cat => ({ cat: cat.nom, entries: state.depenses.filter(d=>d.categorie===cat.nom).sort((a,b)=>a.date.localeCompare(b.date)) }))
     .filter(g => g.entries.length>0);
-  const autresEntries = state.depenses.filter(d=>!state.categoriesDepenses.includes(d.categorie));
+  const autresEntries = state.depenses.filter(d=>!catNoms.includes(d.categorie));
   if(autresEntries.length) depGroups.push({ cat:'Autres', entries:autresEntries });
+
+  function depDataRow(d, i){
+    return `<tr style="background:${i%2? XL.zebra:'#ffffff'};">
+      ${tdCell(fmtDate(d.date))}
+      ${tdCell(escapeHtml(d.categorie),`color:${XL.muted};`)}
+      ${tdCell(escapeHtml(d.sousCategorie||'—'),`color:${XL.muted};`)}
+      ${tdCell(escapeHtml(d.description))}
+      ${tdNum(d.montant,`color:${XL.red};`)}
+    </tr>`;
+  }
+  function depSubtotalRow(label, value, bold){
+    const w = bold ? 'font-weight:bold;' : 'font-style:italic;';
+    const bg = bold ? XL.zebra : '#ffffff';
+    return `<tr>
+      ${tdCell('', `background:${bg};`)}${tdCell('', `background:${bg};`)}${tdCell('', `background:${bg};`)}
+      <td style="padding:8px 12px;font-family:Calibri,sans-serif;font-size:12px;${w}border:1px solid ${XL.border};background:${bg};text-align:right;">${label}</td>
+      ${tdNum(value, `${w}background:${bg};color:${XL.red};`)}
+    </tr>`;
+  }
 
   const sheetDepenses = `
     <table cellspacing="0" cellpadding="0">
-      ${bannerRow('Dépenses', 4)}
-      ${subRow(state.depenses.length + ' dépense(s) — devise : ' + escapeHtml(state.devise), 4)}
-      ${spacerRow(4)}
+      ${bannerRow('Dépenses', 5)}
+      ${subRow(state.depenses.length + ' dépense(s) — devise : ' + escapeHtml(state.devise), 5)}
+      ${spacerRow(5)}
+      <tr>${thCell('Date')}${thCell('Catégorie')}${thCell('Sous-catégorie')}${thCell('Description')}${thCell('Montant','right')}</tr>
       ${depGroups.map(g=>{
         const sousTotal = g.entries.reduce((s,d)=>s+Number(d.montant||0),0);
+        const subMap = new Map();
+        g.entries.forEach(d=>{
+          const key = d.sousCategorie || 'Non précisé';
+          if(!subMap.has(key)) subMap.set(key, []);
+          subMap.get(key).push(d);
+        });
         return `
-        <tr><td colspan="4" style="background:${XL.redSoft};padding:9px 12px;border:1px solid ${XL.border};font-family:Calibri,sans-serif;font-weight:bold;font-size:12.5px;color:${XL.ink};">${escapeHtml(g.cat)} <span style="font-weight:normal;color:${XL.muted};">(${g.entries.length})</span></td></tr>
-        <tr>${thCell('Date')}${thCell('Description')}<th colspan="1" style="background:${XL.ink};border:1px solid ${XL.ink};"></th>${thCell('Montant','right')}</tr>
-        ${g.entries.map((d,i)=>`<tr style="background:${i%2? XL.zebra:'#ffffff'};">
-          ${tdCell(fmtDate(d.date))}
-          <td colspan="2" style="padding:8px 12px;font-family:Calibri,sans-serif;font-size:12px;border:1px solid ${XL.border};">${escapeHtml(d.description)}</td>
-          ${tdNum(d.montant,`color:${XL.red};`)}
-        </tr>`).join('')}
-        <tr>
-          <td colspan="3" style="padding:8px 12px;font-family:Calibri,sans-serif;font-size:12px;font-weight:bold;border:1px solid ${XL.border};background:${XL.zebra};text-align:right;">Sous-total ${escapeHtml(g.cat)}</td>
-          ${tdNum(sousTotal,`font-weight:bold;background:${XL.zebra};color:${XL.red};`)}
-        </tr>
-        ${spacerRow(4)}`;
-      }).join('') || `<tr>${tdCell('Aucune dépense enregistrée.','font-style:italic;color:'+XL.muted+';')}</tr>`}
-      ${totalRow('TOTAL GÉNÉRAL DES DÉPENSES', tdep, 4, XL.red)}
+        <tr><td colspan="5" style="background:${XL.redSoft};padding:9px 12px;border:1px solid ${XL.border};font-family:Calibri,sans-serif;font-weight:bold;font-size:12.5px;color:${XL.ink};">${escapeHtml(g.cat)} <span style="font-weight:normal;color:${XL.muted};">(${g.entries.length} ligne${g.entries.length>1?'s':''})</span></td></tr>
+        ${[...subMap.entries()].map(([sousNom, entries])=>{
+          const sousSousTotal = entries.reduce((s,d)=>s+Number(d.montant||0),0);
+          return entries.map((d,i)=>depDataRow(d,i)).join('') + depSubtotalRow('Sous-total — ' + escapeHtml(sousNom), sousSousTotal, false);
+        }).join('')}
+        ${depSubtotalRow('TOTAL — ' + escapeHtml(g.cat), sousTotal, true)}
+      `;
+      }).join('') || `<tr>${tdCell('Aucune dépense enregistrée.','font-style:italic;color:'+XL.muted+';')}<td colspan="4" style="border:1px solid ${XL.border};"></td></tr>`}
+      <tr>
+        ${tdCell('',`background:${XL.zebra};border-top:2px solid ${XL.ink};`)}${tdCell('',`background:${XL.zebra};border-top:2px solid ${XL.ink};`)}${tdCell('',`background:${XL.zebra};border-top:2px solid ${XL.ink};`)}
+        <td style="padding:11px 12px;font-family:Calibri,sans-serif;font-weight:bold;font-size:12.5px;border:1px solid ${XL.border};border-top:2px solid ${XL.ink};background:${XL.zebra};color:${XL.ink};text-align:right;">TOTAL GÉNÉRAL DES DÉPENSES</td>
+        <td style="mso-number-format:'#,##0';text-align:right;font-family:Calibri,sans-serif;font-weight:bold;font-size:12.5px;padding:11px 12px;border-top:2px solid ${XL.ink};border-right:1px solid ${XL.border};border-bottom:1px solid ${XL.border};background:${XL.zebra};color:${XL.red};">${num(tdep)}</td>
+      </tr>
     </table>`;
 
   return `
