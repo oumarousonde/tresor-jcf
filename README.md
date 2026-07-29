@@ -1,17 +1,16 @@
 # Trésor JCF — Camp 2026
 
-Application de gestion financière du camp (frais de participation, dons, dépenses)
-sous forme d'un site statique à une seule page. Aucune base de données : les
-données sont sauvegardées dans le navigateur de la personne qui utilise l'app.
+Application de gestion financière du camp (frais de participation, dons,
+dépenses, cotisations) sous forme d'un site à une seule page, synchronisée
+en temps réel entre tous tes appareils via Firebase (Firestore + Authentication).
 
-## Déployer sur Vercel (le plus simple)
+## Déployer sur Vercel
 
 ### Option A — Sans compte technique, par glisser-déposer
 1. Va sur https://vercel.com et crée un compte gratuit (avec ton email ou Google).
 2. Une fois connecté, clique sur **"Add New..."** puis **"Project"**.
 3. Choisis **"Deploy"** via l'onglet qui permet d'uploader un dossier
-   (glisse-dépose le dossier `tresor-jcf-vercel` complet, avec `index.html`
-   et `vercel.json` à l'intérieur).
+   (glisse-dépose le dossier `tresor-jcf-vercel` complet).
 4. Clique sur **Deploy**. Après quelques secondes, Vercel te donne un lien
    du type `https://tresor-jcf-xxxx.vercel.app` — c'est ton app, en ligne.
 
@@ -21,7 +20,6 @@ Depuis ce dossier, dans un terminal :
 npm install -g vercel
 vercel --prod
 ```
-Suis les instructions à l'écran (connexion, puis confirmation du déploiement).
 
 ### Option C — Via GitHub
 1. Crée un dépôt GitHub et mets-y les fichiers de ce dossier.
@@ -32,12 +30,18 @@ Suis les instructions à l'écran (connexion, puis confirmation du déploiement)
 
 ## Important à savoir
 
-- **Les données sont propres à chaque navigateur.** Si tu utilises l'app sur
-  ton téléphone puis sur ton ordinateur, ce sont deux "carnets" séparés.
-  Utilise toujours le même appareil/navigateur pour la saisie du camp.
-- **Aucune donnée n'est envoyée à un serveur externe.** Tout reste dans ton
-  navigateur (stockage personnel), donc rien à configurer côté Vercel.
-- Le fichier `index.html` est autonome (HTML + CSS + JS + favicon inclus) :
-  tu peux aussi l'ouvrir directement en local (double-clic) sans passer par
-  Vercel si tu préfères, mais le lien en ligne est plus pratique à partager
-  avec d'autres personnes de l'équipe.
+- **Les données sont synchronisées entre tous les appareils** via Firebase :
+  ce que tu ajoutes sur ton téléphone apparaît automatiquement sur ton
+  ordinateur, et inversement — dès qu'il y a une connexion internet.
+- **La connexion se fait avec un compte email/mot de passe** créé dans la
+  console Firebase (Authentication → Users). L'app ne permet pas de créer
+  un compte soi-même : seules les personnes à qui tu as créé un accès
+  peuvent se connecter.
+- **La configuration Firebase** (`firebaseConfig`) est directement intégrée
+  dans `index.html`. Ce n'est pas un secret absolu (elle est visible dans
+  le code une fois le site en ligne) — la vraie protection vient des règles
+  de sécurité Firestore, qui n'autorisent l'accès qu'aux personnes connectées.
+- Le fichier `index.html` a besoin d'une connexion internet pour fonctionner
+  (chargement de Firebase et synchronisation des données) — contrairement à
+  une version 100% locale, il ne peut pas être ouvert hors-ligne dès le
+  premier lancement sur un appareil.
