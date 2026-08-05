@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#16234a">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<title>Ma situation — JCF</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#eef1f6; --surface:#ffffff; --surface-alt:#f4f6fa; --border:#e2e6f0;
+    --ink:#16234a; --text:#1a2036; --muted:#6b7280;
+    --accent:#f47c20; --accent-dark:#d9660f; --accent-soft:#fdecdc;
+    --green:#0f9d67; --green-soft:#dff3e8; --red:#d64545; --red-soft:#fbe7e6;
+    --shadow-md: 0 4px 14px rgba(22,35,74,0.10);
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;}
+  .card{background:var(--surface);border-radius:16px;padding:34px 30px;max-width:440px;width:100%;box-shadow:var(--shadow-md);}
+  .eyebrow{font-family:'JetBrains Mono',monospace;font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);font-weight:700;margin-bottom:8px;text-align:center;}
+  h1{font-family:'Sora',sans-serif;font-size:22px;font-weight:800;text-align:center;margin:0 0 6px 0;color:var(--ink);}
+  .sub{text-align:center;font-size:13px;color:var(--muted);margin-bottom:26px;line-height:1.5;}
+  .field{margin-bottom:14px;}
+  .field label{display:block;font-family:'JetBrains Mono',monospace;font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);margin-bottom:6px;font-weight:500;}
+  .field input{width:100%;padding:11px 12px;border:1px solid var(--border);border-radius:8px;font-family:'Inter',sans-serif;font-size:14.5px;background:var(--surface-alt);color:var(--text);}
+  .field input:focus{outline:none;border-color:var(--accent);background:#fff;box-shadow:0 0 0 3px var(--accent-soft);}
+  .btn{width:100%;padding:13px;border-radius:9px;border:none;font-weight:700;font-family:'Inter',sans-serif;font-size:14.5px;cursor:pointer;background:var(--accent);color:#fff;margin-top:6px;}
+  .btn:hover{background:var(--accent-dark);}
+  .btn:disabled{opacity:.6;cursor:default;}
+  .btn-outline{background:none;border:1px solid var(--border);color:var(--text);margin-top:10px;}
+  .err{background:var(--red-soft);color:var(--red);font-size:12.5px;padding:9px 12px;border-radius:8px;margin-bottom:14px;display:none;}
+  .err.show{display:block;}
+  .result{display:none;}
+  .result.show{display:block;}
+  .form-wrap.hide{display:none;}
+  .status-badge{display:inline-block;padding:6px 14px;border-radius:20px;font-weight:700;font-size:13px;margin-bottom:16px;}
+  .status-ok{background:var(--green-soft);color:var(--green);}
+  .status-late{background:var(--red-soft);color:var(--red);}
+  .result-name{font-family:'Sora',sans-serif;font-size:18px;font-weight:700;color:var(--ink);margin-bottom:2px;}
+  .result-meta{font-size:12.5px;color:var(--muted);margin-bottom:16px;}
+  .stat-row{display:flex;justify-content:space-between;padding:9px 0;border-bottom:1px solid var(--border);font-size:13.5px;}
+  .stat-row b{font-family:'JetBrains Mono',monospace;}
+</style>
+</head>
+<body>
+
+<div class="card">
+  <div class="eyebrow">JCF</div>
+  <h1>Ma situation</h1>
+  <p class="sub">Entre ton numéro de téléphone (celui utilisé lors de ton inscription) pour voir où tu en es avec tes cotisations.</p>
+
+  <div id="errBox" class="err"></div>
+
+  <div class="form-wrap" id="formWrap">
+    <form id="lookupForm">
+      <div class="field"><label>Numéro de téléphone</label><input type="tel" name="telephone" required placeholder="+226 70 00 00 00"></div>
+      <button type="submit" class="btn" id="submitBtn">Voir ma situation</button>
+    </form>
+  </div>
+
+  <div class="result" id="resultBox"></div>
+</div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-app.js";
+import { getFirestore, collection, query, where, getDocs } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyC7OZ4xQJ1uURAHk6_cyTlCGigJzVfO-uA",
+  authDomain: "tresor-jcf.firebaseapp.com",
+  projectId: "tresor-jcf",
+  storageBucket: "tresor-jcf.firebasestorage.app",
+  messagingSenderId: "909307058747",
+  appId: "1:909307058747:web:9246c8abab8196dce81a1e"
+};
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
+
+const ROLE_LABELS = { simple:'Membre simple', conseiller:'Conseiller', bureau:'Bureau' };
+const MOIS_FR = ['Janv.','Févr.','Mars','Avr.','Mai','Juin','Juil.','Août','Sept.','Oct.','Nov.','Déc.'];
+function monthLabel(mk){ const [y,m]=mk.split('-').map(Number); return `${MOIS_FR[m-1]} ${y}`; }
+function normalizePhone(p){ return String(p||'').replace(/[^0-9]/g,''); }
+function fmt(n){ return (Number(n)||0).toLocaleString('fr-FR',{minimumFractionDigits:0,maximumFractionDigits:0}) + ' FCFA'; }
+
+function showError(msg){
+  const el = document.getElementById('errBox');
+  el.textContent = msg;
+  el.classList.add('show');
+}
+
+document.getElementById('lookupForm').addEventListener('submit', async (e)=>{
+  e.preventDefault();
+  const btn = document.getElementById('submitBtn');
+  const telephoneRaw = new FormData(e.target).get('telephone').trim();
+  const digits = normalizePhone(telephoneRaw);
+  if(!digits){ showError('Merci de saisir un numéro de téléphone.'); return; }
+
+  btn.disabled = true;
+  btn.textContent = 'Recherche…';
+  document.getElementById('errBox').classList.remove('show');
+
+  try{
+    const snap = await getDocs(collection(db,'publicMembreStatus'));
+    const match = snap.docs.map(d=>d.data()).find(m => normalizePhone(m.telephone) === digits);
+    if(!match){
+      showError("Aucune fiche trouvée avec ce numéro. Vérifie qu'il correspond à celui utilisé lors de ton inscription, ou qu'elle a bien été validée par le trésorier.");
+      btn.disabled = false; btn.textContent = 'Voir ma situation';
+      return;
+    }
+    renderResult(match);
+  }catch(err){
+    console.error(err);
+    showError("Erreur de connexion. Vérifie ta connexion internet et réessaie.");
+    btn.disabled = false; btn.textContent = 'Voir ma situation';
+  }
+});
+
+function renderResult(m){
+  document.getElementById('formWrap').classList.add('hide');
+  const box = document.getElementById('resultBox');
+  const enRetard = m.moisImpayes > 0;
+  box.innerHTML = `
+    <div class="status-badge ${enRetard?'status-late':'status-ok'}">${enRetard ? `⏳ ${m.moisImpayes} mois impayé${m.moisImpayes>1?'s':''}` : '✅ À jour'}</div>
+    <div class="result-name">${m.nom} ${m.prenom}</div>
+    <div class="result-meta">${ROLE_LABELS[m.role]||m.role}${m.poste?' — '+m.poste:''} · ${m.groupe||'—'}</div>
+    <div class="stat-row"><span>Total payé</span><b>${fmt(m.totalPaye)}</b></div>
+    <div class="stat-row"><span>Arriéré</span><b style="color:${m.arriere>0?'#d64545':'#0f9d67'}">${fmt(m.arriere)}</b></div>
+    <div class="stat-row" style="border-bottom:none;"><span>Mois payés</span><b>${(m.moisPayes||[]).length}</b></div>
+    <button class="btn btn-outline" id="btnBack">← Vérifier un autre numéro</button>
+  `;
+  box.classList.add('show');
+  document.getElementById('btnBack').addEventListener('click', ()=>{
+    box.classList.remove('show');
+    document.getElementById('formWrap').classList.remove('hide');
+    document.getElementById('submitBtn').disabled = false;
+    document.getElementById('submitBtn').textContent = 'Voir ma situation';
+  });
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#16234a">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<title>Inscription JCF</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#eef1f6; --surface:#ffffff; --surface-alt:#f4f6fa; --border:#e2e6f0;
+    --ink:#16234a; --text:#1a2036; --muted:#6b7280;
+    --accent:#f47c20; --accent-dark:#d9660f; --accent-soft:#fdecdc;
+    --shadow-md: 0 4px 14px rgba(22,35,74,0.10);
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;}
+  .card{background:var(--surface);border-radius:16px;padding:34px 30px;max-width:420px;width:100%;box-shadow:var(--shadow-md);}
+  .eyebrow{font-family:'JetBrains Mono',monospace;font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);font-weight:700;margin-bottom:8px;text-align:center;}
+  h1{font-family:'Sora',sans-serif;font-size:22px;font-weight:800;text-align:center;margin:0 0 6px 0;color:var(--ink);}
+  .sub{text-align:center;font-size:13px;color:var(--muted);margin-bottom:26px;line-height:1.5;}
+  .field{margin-bottom:14px;}
+  .field label{display:block;font-family:'JetBrains Mono',monospace;font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);margin-bottom:6px;font-weight:500;}
+  .field input, .field select{width:100%;padding:11px 12px;border:1px solid var(--border);border-radius:8px;font-family:'Inter',sans-serif;font-size:14.5px;background:var(--surface-alt);color:var(--text);}
+  .field input:focus, .field select:focus{outline:none;border-color:var(--accent);background:#fff;box-shadow:0 0 0 3px var(--accent-soft);}
+  .btn{width:100%;padding:13px;border-radius:9px;border:none;font-weight:700;font-family:'Inter',sans-serif;font-size:14.5px;cursor:pointer;background:var(--accent);color:#fff;margin-top:6px;}
+  .btn:hover{background:var(--accent-dark);}
+  .btn:disabled{opacity:.6;cursor:default;}
+  .err{background:#fbe7e6;color:#c93a30;font-size:12.5px;padding:9px 12px;border-radius:8px;margin-bottom:14px;display:none;}
+  .err.show{display:block;}
+  .success{display:none;text-align:center;}
+  .success.show{display:block;}
+  .success .icon{font-size:44px;margin-bottom:10px;}
+  .success h2{font-family:'Sora',sans-serif;font-size:19px;color:var(--ink);margin:0 0 8px 0;}
+  .success p{font-size:13.5px;color:var(--muted);line-height:1.6;}
+  .form-wrap.hide{display:none;}
+</style>
+</head>
+<body>
+
+<div class="card">
+  <div class="eyebrow">JCF</div>
+  <h1>Inscription des membres</h1>
+  <p class="sub">Remplis tes informations. Un responsable validera ton inscription avant qu'elle soit prise en compte.</p>
+
+  <div id="errBox" class="err"></div>
+
+  <div class="form-wrap" id="formWrap">
+    <form id="inscriptionForm">
+      <div class="field"><label>Nom</label><input type="text" name="nom" required></div>
+      <div class="field"><label>Prénom</label><input type="text" name="prenom" required></div>
+      <div class="field"><label>Téléphone</label><input type="tel" name="telephone" required placeholder="+226 70 00 00 00"></div>
+      <div class="field">
+        <label>Groupe / Localité</label>
+        <input type="text" name="groupe" required list="groupesList" placeholder="Ex: Ouagadougou">
+        <datalist id="groupesList">
+          <option value="Ouagadougou"><option value="Bobo-Dioulasso"><option value="Barkoudouba"><option value="Léo">
+        </datalist>
+      </div>
+      <div class="field">
+        <label>Rôle</label>
+        <select name="role" id="roleSelect" required>
+          <option value="simple">Membre simple</option>
+          <option value="conseiller">Conseiller</option>
+          <option value="bureau">Bureau</option>
+        </select>
+      </div>
+      <div class="field" id="posteField" style="display:none;">
+        <label>Poste au bureau</label>
+        <input type="text" name="poste" id="posteInput" placeholder="Ex: Trésorier, Secrétaire général…">
+      </div>
+      <button type="submit" class="btn" id="submitBtn">S'inscrire</button>
+    </form>
+  </div>
+
+  <div class="success" id="successBox">
+    <div class="icon">✅</div>
+    <h2>Inscription envoyée</h2>
+    <p>Merci ! Un responsable de la JCF va vérifier et valider ton inscription. Elle ne compte pas encore tant que ce n'est pas fait.</p>
+  </div>
+</div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-app.js";
+import { getFirestore, collection, addDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyC7OZ4xQJ1uURAHk6_cyTlCGigJzVfO-uA",
+  authDomain: "tresor-jcf.firebaseapp.com",
+  projectId: "tresor-jcf",
+  storageBucket: "tresor-jcf.firebasestorage.app",
+  messagingSenderId: "909307058747",
+  appId: "1:909307058747:web:9246c8abab8196dce81a1e"
+};
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
+
+function todayISO(){ return new Date().toISOString().slice(0,10); }
+
+document.getElementById('roleSelect').addEventListener('change', (e)=>{
+  document.getElementById('posteField').style.display = e.target.value==='bureau' ? '' : 'none';
+});
+
+function showError(msg){
+  const el = document.getElementById('errBox');
+  el.textContent = msg;
+  el.classList.add('show');
+}
+
+document.getElementById('inscriptionForm').addEventListener('submit', async (e)=>{
+  e.preventDefault();
+  const btn = document.getElementById('submitBtn');
+  const fd = new FormData(e.target);
+  const role = fd.get('role');
+  const data = {
+    nom: fd.get('nom').trim(),
+    prenom: fd.get('prenom').trim(),
+    telephone: fd.get('telephone').trim(),
+    groupe: fd.get('groupe').trim(),
+    role,
+    poste: role==='bureau' ? fd.get('poste').trim() : '',
+    dateAdhesion: todayISO(),
+    submittedAt: serverTimestamp(),
+  };
+  if(!data.nom || !data.prenom || !data.telephone || !data.groupe){
+    showError('Merci de remplir tous les champs.');
+    return;
+  }
+  btn.disabled = true;
+  btn.textContent = 'Envoi en cours…';
+  try{
+    await addDoc(collection(db,'pendingMembres'), data);
+    document.getElementById('formWrap').classList.add('hide');
+    document.getElementById('successBox').classList.add('show');
+  }catch(err){
+    console.error(err);
+    showError("Erreur d'envoi. Vérifie ta connexion internet et réessaie.");
+    btn.disabled = false;
+    btn.textContent = "S'inscrire";
+  }
+});
+</script>
+</body>
+</html>
