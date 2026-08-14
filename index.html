@@ -416,6 +416,15 @@
     background:none;border:none;color:var(--muted);font-size:20px;cursor:pointer;
     position:absolute;top:14px;right:16px;line-height:1;
   }
+  .stat-row-like{
+    display:flex;justify-content:space-between;align-items:center;
+    padding:9px 0;border-bottom:1px solid var(--border);font-size:13.5px;
+  }
+  .status-badge{display:inline-block;padding:6px 14px;border-radius:20px;font-weight:700;font-size:13px;margin-bottom:16px;}
+  .status-ok{background:var(--accent-soft);color:var(--accent-dark);}
+  .status-late{background:var(--red-soft);color:var(--red);}
+  .result-name{font-family:'Sora',sans-serif;font-size:18px;font-weight:700;color:var(--text);margin-bottom:2px;}
+  .result-meta{font-size:12.5px;color:var(--muted);margin-bottom:16px;}
   .auth-eyebrow{
     font-family:'JetBrains Mono',monospace;font-size:10.5px;letter-spacing:.14em;
     text-transform:uppercase;color:var(--accent);font-weight:700;margin-bottom:6px;text-align:center;
@@ -537,11 +546,12 @@
    ========================================================= */
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-app.js";
 import {
-  getAuth, onAuthStateChanged, signInWithEmailAndPassword,
-  signOut, sendPasswordResetEmail, setPersistence, browserLocalPersistence
+  getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword,
+  signOut, sendPasswordResetEmail, setPersistence, browserLocalPersistence,
+  GoogleAuthProvider, signInWithPopup
 } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-auth.js";
 import {
-  getFirestore, doc, setDoc, onSnapshot, collection, deleteDoc
+  getFirestore, doc, setDoc, onSnapshot, collection, deleteDoc, getDoc, addDoc, getDocs, serverTimestamp
 } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore.js";
 
 const firebaseConfig = {
@@ -554,12 +564,20 @@ const firebaseConfig = {
 };
 const firebaseApp = initializeApp(firebaseConfig);
 const auth = getAuth(firebaseApp);
+const googleProvider = new GoogleAuthProvider();
 const db = getFirestore(firebaseApp);
 const STATE_DOC = doc(db, 'campData', 'main');
+const SUMMARY_DOC = doc(db, 'campData', 'summary');       // solde/dons/cotisations/nb membres — lecture bureau
+const PAYMENT_INFO_DOC = doc(db, 'campData', 'paymentInfo'); // QR code + numéros de paiement — public, sans connexion
+const PUBLIC_STATS_DOC = doc(db, 'campData', 'publicStats'); // nb membres + classement groupes — public, sans connexion
 const PENDING_COL = collection(db, 'pendingMembres');
 let unsubscribeSnapshot = null;
 let unsubscribePending = null;
+let unsubscribeSummary = null;
 let pendingMembres = [];
+let currentUserRole = null; // 'admin' | 'bureau' | null (pas encore configuré)
+let userRolesList = [];
+let paymentInfo = { qrCodeBase64:'', orangeMoneyNumero:'', moovMoneyNumero:'', instructions:'' };
 
 /* =========================================================
    ÉTAT (synchronisé en temps réel via Firebase / Firestore)
@@ -604,11 +622,18 @@ function loadState(){
           typeof c === 'string' ? { nom:c, sousCategories:[] } : { nom:c.nom, sousCategories:c.sousCategories||[] }
         );
       }
-      // migration : anciennes "Commissions" du camp jamais utilisées -> nouvelles catégories de trésorerie continue
-      const sontEncoreLesCommissionsDuCamp = state.categoriesDepenses.length>0 &&
-        state.categoriesDepenses.every(c=>c.nom.startsWith('Commission '));
-      if(sontEncoreLesCommissionsDuCamp && state.depenses.length===0){
-        state.categoriesDepenses = defaultState().categoriesDepenses;
+      // migration : toute trace de "Commission ..." (ancien vocabulaire du camp) -> reclassée
+      // vers "Divers / Imprévus", même si des dépenses existent déjà sous ce nom.
+      const aDesCommissions = state.categoriesDepenses.some(c=>c.nom.startsWith('Commission ')) ||
+        state.depenses.some(d=>(d.categorie||'').startsWith('Commission '));
+      if(aDesCommissions){
+        if(!state.categoriesDepenses.some(c=>c.nom==='Divers / Imprévus')){
+          state.categoriesDepenses.push({ nom:'Divers / Imprévus', sousCategories:[] });
+        }
+        state.depenses = state.depenses.map(d=>
+          (d.categorie||'').startsWith('Commission ') ? { ...d, categorie:'Divers / Imprévus' } : d
+        );
+        state.categoriesDepenses = state.categoriesDepenses.filter(c=>!c.nom.startsWith('Commission '));
         setDoc(STATE_DOC, state).catch(e=>console.error(e));
       }
       // migration : anciens dons nom+prénom (une personne) -> champ source unique et libre
@@ -642,6 +667,7 @@ function saveState(){
       await setDoc(STATE_DOC, state);
       flashSaved();
       syncPublicMembreStatus();
+      syncSummaries();
     }catch(e){ console.error('Erreur de sauvegarde', e); toast("Erreur de sauvegarde : vérifie ta connexion internet."); }
   }, 400);
 }
@@ -661,6 +687,33 @@ async function syncPublicMembreStatus(){
       });
     }));
   }catch(e){ console.error('Erreur de synchronisation du statut public', e); }
+}
+// Résumé pour le bureau (connecté, lecture seule) : chiffres agrégés uniquement,
+// jamais le détail des dons/dépenses ligne par ligne.
+async function syncSummaries(){
+  try{
+    await setDoc(SUMMARY_DOC, {
+      soldeDisponible: grandTotal(),
+      totalDons: totalDons(),
+      totalDepenses: totalDepenses(),
+      totalCotisations: totalCotisationsCollectees(),
+      nombreMembres: state.membres.length,
+    });
+  }catch(e){ console.error('Erreur de synchronisation du résumé bureau', e); }
+  // Stats publiques (aucune donnée financière individuelle, aucun statut de paiement) :
+  // pour la page "Ma situation", sans connexion.
+  try{
+    const groupesPresents = [...new Set(state.membres.map(m=>m.groupe||'Sans groupe'))];
+    const classement = groupesPresents.map(g=>{
+      const membres = state.membres.filter(m=>(m.groupe||'Sans groupe')===g);
+      const paye = membres.reduce((s,m)=>s+totalPayeMembre(m.id),0);
+      return { groupe:g, count:membres.length, montant: paye };
+    }).sort((a,b)=>b.montant-a.montant);
+    const listeMembres = state.membres
+      .map(m=>({ nom:m.nom, prenom:m.prenom, groupe:m.groupe||'Sans groupe' }))
+      .sort((a,b)=>(a.nom+a.prenom).localeCompare(b.nom+b.prenom));
+    await setDoc(PUBLIC_STATS_DOC, { nombreMembres: state.membres.length, classementGroupes: classement, listeMembres });
+  }catch(e){ console.error('Erreur de synchronisation des stats publiques', e); }
 }
 function flashSaved(){
   const el = document.getElementById('saveIndicator');
@@ -1168,6 +1221,27 @@ function viewParametres(){
         </div>
       </div>
       <div class="panel">
+        <div class="section-title">Moyen de paiement (QR code)</div>
+        <p style="font-size:12.5px;color:var(--muted);margin-bottom:14px;">Affiché publiquement sur "Ma situation" pour que les membres puissent payer directement — toi seul confirmes le paiement ensuite dans l'app.</p>
+        ${paymentInfo.qrCodeBase64 ? `
+          <div style="text-align:center;margin-bottom:12px;">
+            <img src="${paymentInfo.qrCodeBase64}" alt="QR code de paiement" style="max-width:180px;border-radius:8px;border:1px solid var(--border);">
+          </div>
+          <button class="btn btn-outline" id="btnRemoveQr" style="width:100%;margin-bottom:14px;">Retirer le QR code</button>
+        ` : `
+          <div class="field" style="margin-bottom:14px;">
+            <label>Importer une image du QR (Orange Money, etc.)</label>
+            <input type="file" id="qrFileInput" accept="image/*">
+          </div>
+        `}
+        <div class="form-grid">
+          <div class="field"><label>Numéro Orange Money</label><input type="text" id="orangeMoneyInput" placeholder="Ex: 70 00 00 00" value="${escapeHtml(paymentInfo.orangeMoneyNumero)}"></div>
+          <div class="field"><label>Numéro Moov Money</label><input type="text" id="moovMoneyInput" placeholder="Ex: 60 00 00 00" value="${escapeHtml(paymentInfo.moovMoneyNumero)}"></div>
+        </div>
+        <div class="field" style="margin-top:10px;"><label>Instructions (facultatif)</label><input type="text" id="paymentInstructionsInput" placeholder="Ex: Indique ton nom dans le message" value="${escapeHtml(paymentInfo.instructions)}"></div>
+        <button class="btn btn-gold" id="btnSavePaymentInfo" style="width:100%;margin-top:12px;">Enregistrer</button>
+      </div>
+      <div class="panel">
         <div class="section-title">Devise</div>
         <div class="field" style="max-width:160px;">
           <label>Symbole affiché</label>
@@ -1198,9 +1272,8 @@ function viewParametres(){
       </div>
       <div class="panel">
         <div class="section-title">Accès (compte Firebase)</div>
-        <p style="font-size:12.5px;color:var(--muted);margin-bottom:14px;">Connecté en tant que : <b>${escapeHtml(auth.currentUser?.email || '—')}</b></p>
+        <p style="font-size:12.5px;color:var(--muted);margin-bottom:14px;">Connecté en tant que : <b>${escapeHtml(auth.currentUser?.email || '—')}</b> <span class="cat-pill">Trésorier — accès total</span></p>
         <p style="font-size:12px;color:var(--muted);margin-bottom:14px;">Les comptes se créent dans la console Firebase (Authentication → Users). Pour changer de mot de passe, utilise le lien de réinitialisation ci-dessous.</p>
-        <p style="font-size:12px;color:var(--muted);margin-bottom:14px;">💡 Vous pouvez être plusieurs trésoriers : crée un compte de plus dans Firebase pour chaque personne, avec son propre email — tous verront et modifieront les mêmes données, synchronisées en temps réel.</p>
         <button class="btn btn-outline" id="btnResetPwFromSettings">Recevoir un email pour changer de mot de passe</button>
         ${webauthnAvailable() ? `
         <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border);">
@@ -1213,6 +1286,23 @@ function viewParametres(){
         </div>` : ''}
         <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border);">
           <button class="btn btn-outline" id="btnLockNow">🔒 Se déconnecter</button>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="section-title">Accès du bureau (lecture seule)</div>
+        <p style="font-size:12.5px;color:var(--muted);margin-bottom:12px;">Le bureau (Président, Secrétaires, Organisateurs, trésorier adjoint...) voit le solde, les dons, les cotisations et le nombre de membres — sans pouvoir rien modifier. Toi seul as le contrôle total.</p>
+        <ol style="font-size:12px;color:var(--muted);padding-left:18px;margin-bottom:14px;line-height:1.7;">
+          <li>Crée un compte pour cette personne dans Firebase Console → Authentication → Users</li>
+          <li>Copie son "ID utilisateur" (UID) affiché dans la liste</li>
+          <li>Colle-le ci-dessous avec son nom pour lui donner l'accès lecture seule</li>
+        </ol>
+        <div class="form-grid" style="margin-bottom:10px;">
+          <div class="field"><label>UID Firebase</label><input type="text" id="newBureauUid" placeholder="Ex: aZ9k..."></div>
+          <div class="field"><label>Nom (repère)</label><input type="text" id="newBureauNom" placeholder="Ex: Kaboré (Président)"></div>
+        </div>
+        <button class="btn btn-outline" id="btnAddBureauAccess">+ Donner l'accès lecture seule</button>
+        <div class="tag-list" style="margin-top:14px;">
+          ${userRolesList.filter(r=>r.role==='bureau').map(r=>`<span class="tag">${escapeHtml(r.nom||r.id)}<button data-remove-bureau="${r.id}">✕</button></span>`).join('') || '<span style="font-size:11.5px;color:var(--muted);">Aucun accès bureau donné pour l\u2019instant</span>'}
         </div>
       </div>
       <div class="panel">
@@ -2212,6 +2302,7 @@ function showMemberDetail(membreId){
   });
 }
 
+const ORIGINAL_APP_HTML = document.querySelector('.app').innerHTML;
 function initAuthFlow(){
   setPersistence(auth, browserLocalPersistence).catch(()=>{});
   onAuthStateChanged(auth, (user)=>{
@@ -2227,19 +2318,127 @@ function initAuthFlow(){
     } else {
       if(unsubscribeSnapshot){ unsubscribeSnapshot(); unsubscribeSnapshot = null; }
       if(unsubscribePending){ unsubscribePending(); unsubscribePending = null; }
+      if(unsubscribeSummary){ unsubscribeSummary(); unsubscribeSummary = null; }
+      if(unsubscribeUserRoles){ unsubscribeUserRoles(); unsubscribeUserRoles = null; }
+      if(unsubscribePaymentInfo){ unsubscribePaymentInfo(); unsubscribePaymentInfo = null; }
+      userRolesList = [];
       pendingMembres = [];
+      currentUserRole = null;
       state = defaultState();
       sessionStorage.removeItem(FP_SESSION_KEY);
+      authScreenMode = 'home';
       showAuthOverlay();
       renderAuthOverlay();
     }
   });
 }
 
-function startApp(){
+async function startApp(){
   hideAuthOverlay();
-  loadState();
-  listenPendingMembres();
+  try{
+    const roleSnap = await getDoc(doc(db,'userRoles', auth.currentUser.uid));
+    currentUserRole = roleSnap.exists() ? roleSnap.data().role : null;
+  }catch(e){
+    console.error('Erreur de lecture du rôle', e);
+    currentUserRole = null;
+  }
+
+  if(currentUserRole === 'admin'){
+    document.querySelector('.app').innerHTML = ORIGINAL_APP_HTML;
+    loadState();
+    listenPendingMembres();
+    listenUserRoles();
+    listenPaymentInfo();
+  } else if(currentUserRole === 'bureau'){
+    startBureauView();
+  } else {
+    renderNoRoleScreen();
+  }
+}
+
+/* ---------- Vue Bureau (connecté, lecture seule) ---------- */
+function startBureauView(){
+  document.querySelector('.app').innerHTML = `
+    <div class="main" style="flex:1;">
+      <div class="topbar">
+        <div>
+          <h2>Résumé — JCF</h2>
+          <div class="sub">Vue d'ensemble, lecture seule</div>
+        </div>
+        <div class="actions">
+          <button class="btn btn-outline" id="bureauLogoutBtn">🔒 Se déconnecter</button>
+        </div>
+      </div>
+      <div class="content" id="bureauContent">
+        <div class="loading-state"><div class="loading-spinner"></div><div class="loading-text">Chargement…</div></div>
+      </div>
+    </div>
+  `;
+  document.getElementById('bureauLogoutBtn').addEventListener('click', ()=>signOut(auth));
+  if(unsubscribeSummary) unsubscribeSummary();
+  unsubscribeSummary = onSnapshot(SUMMARY_DOC, (snap)=>{
+    const d = snap.exists() ? snap.data() : { soldeDisponible:0, totalDons:0, totalCotisations:0, nombreMembres:0 };
+    const el = document.getElementById('bureauContent');
+    if(!el) return;
+    el.innerHTML = `
+      <div class="cards-row">
+        <div class="card gold"><div class="label">Solde disponible</div><div class="value">${fmt(d.soldeDisponible)}</div></div>
+        <div class="card green"><div class="label">Total des dons</div><div class="value">${fmt(d.totalDons)}</div></div>
+        <div class="card green"><div class="label">Cotisations collectées</div><div class="value">${fmt(d.totalCotisations)}</div></div>
+        <div class="card"><div class="label">Membres enregistrés</div><div class="value">${d.nombreMembres}</div></div>
+      </div>
+      <div class="panel" style="margin-top:22px;">
+        <p style="font-size:12.5px;color:var(--muted);line-height:1.6;">Tu es connecté avec un accès <b>lecture seule</b> — seul le trésorier principal peut ajouter, modifier ou supprimer des données.</p>
+      </div>
+      ${webauthnAvailable() ? `
+      <div class="panel" style="margin-top:14px;">
+        <div class="section-title" style="margin-bottom:10px;">Verrou par empreinte sur cet appareil</div>
+        ${getFingerprintCredential()
+          ? `<p style="font-size:12.5px;color:var(--accent-dark);margin-bottom:8px;">✓ Empreinte activée sur cet appareil</p>
+             <button class="btn btn-outline" id="btnRemoveFingerprint">Désactiver l'empreinte</button>`
+          : `<button class="btn btn-outline" id="btnRegisterFingerprint">Activer l'empreinte sur cet appareil</button>`
+        }
+      </div>` : ''}
+    `;
+    document.getElementById('btnRegisterFingerprint')?.addEventListener('click', async ()=>{
+      await registerFingerprintLock();
+      startBureauView();
+    });
+    document.getElementById('btnRemoveFingerprint')?.addEventListener('click', ()=>{
+      removeFingerprintLock();
+      startBureauView();
+    });
+  }, (err)=>console.error(err));
+}
+
+function renderNoRoleScreen(){
+  const uid = auth.currentUser?.uid || '';
+  document.querySelector('.app').innerHTML = `
+    <div class="main" style="flex:1;align-items:center;justify-content:center;display:flex;">
+      <div class="auth-card" style="text-align:center;max-width:420px;">
+        <div class="auth-eyebrow">Trésor JCF</div>
+        <h2 class="auth-title">Accès non configuré</h2>
+        <p style="font-size:13px;color:var(--muted);margin-bottom:18px;">Ton compte (<b>${escapeHtml(auth.currentUser?.email||'')}</b>) n'a pas encore de rôle attribué. Envoie l'identifiant ci-dessous au trésorier principal pour qu'il t'active l'accès.</p>
+        <div class="auth-field" style="text-align:left;">
+          <label>Ton identifiant (UID)</label>
+          <input type="text" id="myUidInput" readonly value="${escapeHtml(uid)}" style="font-family:'JetBrains Mono',monospace;font-size:12px;">
+        </div>
+        <div style="display:flex;gap:8px;margin-bottom:16px;">
+          <button class="btn btn-gold" id="btnShareUid" style="flex:1;">📤 Partager mon UID</button>
+          <button class="btn btn-outline" id="btnCopyUid">Copier</button>
+        </div>
+        <button class="auth-btn auth-btn-primary" id="noRoleLogoutBtn" style="background:var(--surface-alt);color:var(--text);border:1px solid var(--border);">Se déconnecter</button>
+      </div>
+    </div>
+  `;
+  document.getElementById('noRoleLogoutBtn').addEventListener('click', ()=>signOut(auth));
+  const uidInput = document.getElementById('myUidInput');
+  document.getElementById('btnShareUid').addEventListener('click', ()=>{
+    shareOrCopyLink(uid, 'Mon accès Trésor JCF', `Voici mon identifiant pour activer mon accès (${auth.currentUser?.email}) :`);
+  });
+  document.getElementById('btnCopyUid').addEventListener('click', ()=>{
+    copyLinkRobust(uidInput);
+  });
 }
 
 /* ---------- Verrou par empreinte digitale (WebAuthn, propre à cet appareil) ---------- */
@@ -2343,24 +2542,303 @@ function listenPendingMembres(){
     if(currentTab==='cotisations') { document.getElementById('content').innerHTML = viewCotisations(); attachHandlers(); }
   }, (err)=>{ console.error(err); });
 }
+let unsubscribeUserRoles = null;
+function listenUserRoles(){
+  if(unsubscribeUserRoles) unsubscribeUserRoles();
+  unsubscribeUserRoles = onSnapshot(collection(db,'userRoles'), (snap)=>{
+    userRolesList = snap.docs.map(d=>({ id:d.id, ...d.data() }));
+    if(currentTab==='parametres') { document.getElementById('content').innerHTML = viewParametres(); attachHandlers(); }
+  }, (err)=>{ console.error(err); });
+}
+let unsubscribePaymentInfo = null;
+function listenPaymentInfo(){
+  if(unsubscribePaymentInfo) unsubscribePaymentInfo();
+  unsubscribePaymentInfo = onSnapshot(PAYMENT_INFO_DOC, (snap)=>{
+    paymentInfo = snap.exists() ? Object.assign({ qrCodeBase64:'', orangeMoneyNumero:'', moovMoneyNumero:'', instructions:'' }, snap.data()) : { qrCodeBase64:'', orangeMoneyNumero:'', moovMoneyNumero:'', instructions:'' };
+    if(currentTab==='parametres') { document.getElementById('content').innerHTML = viewParametres(); attachHandlers(); }
+  }, (err)=>{ console.error(err); });
+}
+
+let authScreenMode = 'home'; // 'home' | 'login' | 'signup' | 'situation' | 'inscription'
 
 function renderAuthOverlay(){
   const el = document.getElementById('authOverlay');
+
+  if(authScreenMode === 'home'){
+    el.innerHTML = `
+      <div class="auth-card">
+        <div class="auth-eyebrow">JCF</div>
+        <h2 class="auth-title">Trésor JCF</h2>
+        <p style="text-align:center;font-size:12.5px;color:var(--muted);margin:-8px 0 22px 0;">Choisis ce que tu veux faire</p>
+        <button type="button" class="export-menu-item" id="btnGoSituation" style="width:100%;margin-bottom:10px;">
+          <b>🔍 Vérifier ma situation</b>
+          <span>Voir si mes cotisations sont à jour</span>
+        </button>
+        <button type="button" class="export-menu-item" id="btnGoInscription" style="width:100%;margin-bottom:10px;">
+          <b>📝 M'inscrire à la JCF</b>
+          <span>Je ne suis pas encore enregistré comme membre</span>
+        </button>
+        <button type="button" class="export-menu-item" id="btnGoLogin" style="width:100%;">
+          <b>🔒 Connexion</b>
+          <span>Trésorier ou membre du bureau</span>
+        </button>
+      </div>
+    `;
+    document.getElementById('btnGoSituation').addEventListener('click', ()=>{ authScreenMode='situation'; renderAuthOverlay(); });
+    document.getElementById('btnGoInscription').addEventListener('click', ()=>{ authScreenMode='inscription'; renderAuthOverlay(); });
+    document.getElementById('btnGoLogin').addEventListener('click', ()=>{ authScreenMode='login'; renderAuthOverlay(); });
+    return;
+  }
+
+  if(authScreenMode === 'situation'){
+    el.innerHTML = `
+      <div class="auth-card wide">
+        <button class="detail-close" id="btnBackHome">✕</button>
+        <div class="auth-eyebrow">JCF</div>
+        <h2 class="auth-title">Ma situation</h2>
+        <p style="text-align:center;font-size:12.5px;color:var(--muted);margin:-8px 0 20px 0;">Entre ton numéro de téléphone (celui utilisé lors de ton inscription).</p>
+        <div class="auth-error" id="authError"></div>
+        <div id="situationFormWrap">
+          <form id="situationLookupForm">
+            <div class="auth-field"><label>Numéro de téléphone</label><input type="tel" id="situationPhone" required placeholder="+226 70 00 00 00"></div>
+            <button type="submit" class="auth-btn auth-btn-primary" id="situationSubmitBtn">Voir ma situation</button>
+          </form>
+        </div>
+        <div id="situationResultBox"></div>
+      </div>
+    `;
+    document.getElementById('btnBackHome').addEventListener('click', ()=>{ authScreenMode='home'; renderAuthOverlay(); });
+    document.getElementById('situationLookupForm').addEventListener('submit', handleSituationLookup);
+    renderPublicOverviewInline();
+    return;
+  }
+
+  if(authScreenMode === 'inscription'){
+    el.innerHTML = `
+      <div class="auth-card wide">
+        <button class="detail-close" id="btnBackHome">✕</button>
+        <div class="auth-eyebrow">JCF</div>
+        <h2 class="auth-title">Inscription</h2>
+        <p style="text-align:center;font-size:12.5px;color:var(--muted);margin:-8px 0 20px 0;">Un responsable validera ton inscription avant qu'elle soit prise en compte.</p>
+        <div class="auth-error" id="authError"></div>
+        <div id="inscriptionFormWrap">
+          <form id="inscriptionForm">
+            <div class="auth-field"><label>Nom</label><input type="text" id="inscNom" required></div>
+            <div class="auth-field"><label>Prénom</label><input type="text" id="inscPrenom" required></div>
+            <div class="auth-field"><label>Téléphone</label><input type="tel" id="inscTelephone" required placeholder="+226 70 00 00 00"></div>
+            <div class="auth-field"><label>Groupe / Localité</label><input type="text" id="inscGroupe" required list="inscGroupesList" placeholder="Ex: Ouagadougou">
+              <datalist id="inscGroupesList"><option value="Ouagadougou"><option value="Bobo-Dioulasso"><option value="Barkoudouba"><option value="Léo"></datalist>
+            </div>
+            <div class="auth-field">
+              <label>Rôle</label>
+              <select id="inscRole">
+                <option value="simple">Membre simple</option>
+                <option value="conseiller">Conseiller</option>
+                <option value="bureau">Bureau</option>
+              </select>
+            </div>
+            <div class="auth-field" id="inscPosteField" style="display:none;"><label>Poste au bureau</label><input type="text" id="inscPoste" placeholder="Ex: Trésorier, Secrétaire général…"></div>
+            <button type="submit" class="auth-btn auth-btn-primary">S'inscrire</button>
+          </form>
+        </div>
+        <div id="inscriptionResultBox"></div>
+      </div>
+    `;
+    document.getElementById('btnBackHome').addEventListener('click', ()=>{ authScreenMode='home'; renderAuthOverlay(); });
+    document.getElementById('inscRole').addEventListener('change', (e)=>{
+      document.getElementById('inscPosteField').style.display = e.target.value==='bureau' ? '' : 'none';
+    });
+    document.getElementById('inscriptionForm').addEventListener('submit', handleInscriptionSubmit);
+    return;
+  }
+
+  if(authScreenMode === 'signup'){
+    el.innerHTML = `
+      <div class="auth-card">
+        <button class="detail-close" id="btnBackHome">✕</button>
+        <div class="auth-eyebrow">Trésor JCF</div>
+        <h2 class="auth-title">Créer mon compte</h2>
+        <p style="text-align:center;font-size:12.5px;color:var(--muted);margin:-8px 0 20px 0;">Choisis toi-même ton mot de passe. Ton accès devra ensuite être activé par le trésorier.</p>
+        <div class="auth-error" id="authError"></div>
+        <button type="button" class="auth-btn auth-btn-fingerprint" id="btnGoogleAuth">🔵 Continuer avec Google</button>
+        <div class="auth-divider">ou avec un email</div>
+        <form id="authSignupForm">
+          <div class="auth-field"><label>Adresse email</label><input type="email" id="signupEmail" required placeholder="toi@exemple.com" autocomplete="username"></div>
+          <div class="auth-field"><label>Mot de passe (au moins 6 caractères)</label><input type="password" id="signupPassword" required minlength="6" placeholder="Choisis un mot de passe" autocomplete="new-password"></div>
+          <div class="auth-field"><label>Confirme le mot de passe</label><input type="password" id="signupPasswordConfirm" required minlength="6" placeholder="Retape-le" autocomplete="new-password"></div>
+          <button type="submit" class="auth-btn auth-btn-primary">Créer mon compte</button>
+        </form>
+        <div class="auth-switch"><button type="button" id="btnBackToLogin">← J'ai déjà un compte</button></div>
+      </div>
+    `;
+    document.getElementById('authSignupForm').addEventListener('submit', handleSignupSubmit);
+    document.getElementById('btnBackToLogin').addEventListener('click', ()=>{ authScreenMode='login'; renderAuthOverlay(); });
+    document.getElementById('btnGoogleAuth').addEventListener('click', handleGoogleAuth);
+    document.getElementById('btnBackHome').addEventListener('click', ()=>{ authScreenMode='home'; renderAuthOverlay(); });
+    return;
+  }
+
   el.innerHTML = `
     <div class="auth-card">
+      <button class="detail-close" id="btnBackHome">✕</button>
       <div class="auth-eyebrow">Trésor JCF</div>
       <h2 class="auth-title">Connexion</h2>
       <div class="auth-error" id="authError"></div>
+      <button type="button" class="auth-btn auth-btn-fingerprint" id="btnGoogleAuth">🔵 Continuer avec Google</button>
+      <div class="auth-divider">ou avec un email</div>
       <form id="authLoginForm">
         <div class="auth-field"><label>Adresse email</label><input type="email" id="loginEmail" required placeholder="toi@exemple.com" autocomplete="username"></div>
         <div class="auth-field"><label>Mot de passe</label><input type="password" id="loginPassword" required placeholder="Ton mot de passe" autocomplete="current-password"></div>
         <button type="submit" class="auth-btn auth-btn-primary">Se connecter</button>
       </form>
       <div class="auth-switch"><button type="button" id="btnForgotAccess">Mot de passe oublié ?</button></div>
+      <div class="auth-switch"><button type="button" id="btnGoToSignup">Pas encore de compte ? En créer un</button></div>
     </div>
   `;
   document.getElementById('authLoginForm').addEventListener('submit', handleLoginSubmit);
   document.getElementById('btnForgotAccess').addEventListener('click', handleForgotPassword);
+  document.getElementById('btnGoToSignup').addEventListener('click', ()=>{ authScreenMode='signup'; renderAuthOverlay(); });
+  document.getElementById('btnGoogleAuth').addEventListener('click', handleGoogleAuth);
+  document.getElementById('btnBackHome').addEventListener('click', ()=>{ authScreenMode='home'; renderAuthOverlay(); });
+}
+
+/* ---------- Écran public : Vérifier ma situation (intégré, sans compte) ---------- */
+async function renderPublicOverviewInline(){
+  try{
+    const snap = await getDoc(doc(db,'campData','publicStats'));
+    if(!snap.exists()) return;
+    const d = snap.data();
+    const medailles = ['🥇','🥈','🥉'];
+    const classement = (d.classementGroupes||[]);
+    const box = document.getElementById('situationResultBox');
+    if(!box) return;
+    const overview = document.createElement('div');
+    overview.className = 'panel';
+    overview.style.marginTop = '18px';
+    overview.innerHTML = `
+      <div style="font-family:'JetBrains Mono',monospace;font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);margin-bottom:8px;">Vue d'ensemble</div>
+      <div class="stat-row-like"><span>Membres enregistrés</span><b>${d.nombreMembres||0}</b></div>
+      ${classement.map((g,i)=>`<div class="stat-row-like"><span>${medailles[i]||'#'+(i+1)} ${escapeHtml(g.groupe)} <span style="color:var(--muted);">(${g.count})</span></span><b>${fmt(g.montant)}</b></div>`).join('')}
+    `;
+    box.parentElement.insertBefore(overview, box);
+  }catch(err){ console.error(err); }
+}
+async function handleSituationLookup(e){
+  e.preventDefault();
+  const phone = document.getElementById('situationPhone').value.trim();
+  const digits = phone.replace(/[^0-9]/g,'');
+  if(!digits){ showAuthError('Merci de saisir un numéro de téléphone.'); return; }
+  const btn = document.getElementById('situationSubmitBtn');
+  btn.disabled = true; btn.textContent = 'Recherche…';
+  try{
+    const snap = await getDocs(collection(db,'publicMembreStatus'));
+    const match = snap.docs.map(d=>d.data()).find(m => (m.telephone||'').replace(/[^0-9]/g,'') === digits);
+    if(!match){
+      showAuthError("Aucune fiche trouvée avec ce numéro. Vérifie qu'il correspond à celui utilisé lors de l'inscription, ou qu'elle a bien été validée par le trésorier.");
+      btn.disabled = false; btn.textContent = 'Voir ma situation';
+      return;
+    }
+    renderSituationResult(match);
+  }catch(err){
+    console.error(err);
+    showAuthError('Erreur de connexion. Vérifie ta connexion internet et réessaie.');
+    btn.disabled = false; btn.textContent = 'Voir ma situation';
+  }
+}
+function renderSituationResult(m){
+  document.getElementById('situationFormWrap').style.display = 'none';
+  const enRetard = m.moisImpayes > 0;
+  const box = document.getElementById('situationResultBox');
+  box.innerHTML = `
+    <div class="status-badge ${enRetard?'status-late':'status-ok'}">${enRetard ? `⏳ ${m.moisImpayes} mois impayé${m.moisImpayes>1?'s':''}` : '✅ À jour'}</div>
+    <div class="result-name">${escapeHtml(m.nom)} ${escapeHtml(m.prenom)}</div>
+    <div class="result-meta">${ROLE_LABELS[m.role]||m.role}${m.poste?' — '+escapeHtml(m.poste):''} · ${escapeHtml(m.groupe||'—')}</div>
+    <div class="stat-row-like"><span>Total payé</span><b>${fmt(m.totalPaye)}</b></div>
+    <div class="stat-row-like"><span>Arriéré</span><b style="color:${m.arriere>0?'var(--red)':'var(--accent-dark)'}">${fmt(m.arriere)}</b></div>
+    <div class="stat-row-like"><span>Mois payés</span><b>${(m.moisPayes||[]).length}</b></div>
+    ${enRetard ? renderPaymentInfoInline() : ''}
+    <button type="button" class="auth-btn auth-btn-primary" id="btnSituationBack" style="margin-top:14px;">← Vérifier un autre numéro</button>
+  `;
+  document.getElementById('btnSituationBack').addEventListener('click', ()=>{ authScreenMode='situation'; renderAuthOverlay(); });
+}
+function renderPaymentInfoInline(){
+  if(!paymentInfo || (!paymentInfo.qrCodeBase64 && !paymentInfo.orangeMoneyNumero && !paymentInfo.moovMoneyNumero)) return '';
+  return `
+    <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border);text-align:center;">
+      <div style="font-family:'JetBrains Mono',monospace;font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);margin-bottom:10px;">Comment payer</div>
+      ${paymentInfo.qrCodeBase64 ? `<img src="${paymentInfo.qrCodeBase64}" alt="QR code de paiement" style="max-width:150px;border-radius:8px;border:1px solid var(--border);margin-bottom:10px;">` : ''}
+      ${paymentInfo.orangeMoneyNumero ? `<div style="font-size:13px;margin-bottom:4px;"><b>Orange Money :</b> ${escapeHtml(paymentInfo.orangeMoneyNumero)}</div>` : ''}
+      ${paymentInfo.moovMoneyNumero ? `<div style="font-size:13px;margin-bottom:4px;"><b>Moov Money :</b> ${escapeHtml(paymentInfo.moovMoneyNumero)}</div>` : ''}
+      ${paymentInfo.instructions ? `<div style="font-size:12px;color:var(--muted);margin-top:8px;">${escapeHtml(paymentInfo.instructions)}</div>` : ''}
+    </div>
+  `;
+}
+// Charge les infos de paiement publiquement dès le lancement (utile même sans connexion)
+(async ()=>{
+  try{
+    const snap = await getDoc(doc(db,'campData','paymentInfo'));
+    if(snap.exists()) paymentInfo = Object.assign({ qrCodeBase64:'', orangeMoneyNumero:'', moovMoneyNumero:'', instructions:'' }, snap.data());
+  }catch(err){ /* pas grave si indisponible avant connexion */ }
+})();
+
+/* ---------- Écran public : Inscription (intégré, sans compte) ---------- */
+async function handleInscriptionSubmit(e){
+  e.preventDefault();
+  const role = document.getElementById('inscRole').value;
+  const data = {
+    nom: document.getElementById('inscNom').value.trim(),
+    prenom: document.getElementById('inscPrenom').value.trim(),
+    telephone: document.getElementById('inscTelephone').value.trim(),
+    groupe: document.getElementById('inscGroupe').value.trim(),
+    role,
+    poste: role==='bureau' ? document.getElementById('inscPoste').value.trim() : '',
+    dateAdhesion: todayISO(),
+    submittedAt: serverTimestamp(),
+  };
+  if(!data.nom || !data.prenom || !data.telephone || !data.groupe){
+    showAuthError('Merci de remplir tous les champs.');
+    return;
+  }
+  try{
+    await addDoc(collection(db,'pendingMembres'), data);
+    document.getElementById('inscriptionFormWrap').style.display = 'none';
+    document.getElementById('inscriptionResultBox').innerHTML = `
+      <div style="text-align:center;">
+        <div style="font-size:40px;margin-bottom:10px;">✅</div>
+        <h3 style="font-family:'Sora',sans-serif;margin-bottom:8px;">Inscription envoyée</h3>
+        <p style="font-size:13px;color:var(--muted);margin-bottom:18px;">Un responsable de la JCF va vérifier et valider ton inscription.</p>
+        <button type="button" class="auth-btn auth-btn-primary" id="btnInscriptionBackHome">Retour à l'accueil</button>
+      </div>
+    `;
+    document.getElementById('btnInscriptionBackHome').addEventListener('click', ()=>{ authScreenMode='home'; renderAuthOverlay(); });
+  }catch(err){
+    console.error(err);
+    showAuthError("Erreur d'envoi. Vérifie ta connexion internet et réessaie.");
+  }
+}
+
+async function handleGoogleAuth(){
+  try{
+    await signInWithPopup(auth, googleProvider);
+    // onAuthStateChanged prend le relais (nouveau compte -> "Accès non configuré" si pas encore de rôle)
+  }catch(err){
+    if(err && err.code === 'auth/popup-closed-by-user') return;
+    showAuthError(authErrorMessage(err));
+  }
+}
+
+async function handleSignupSubmit(e){
+  e.preventDefault();
+  const email = document.getElementById('signupEmail').value.trim();
+  const pw = document.getElementById('signupPassword').value;
+  const pwConfirm = document.getElementById('signupPasswordConfirm').value;
+  if(pw !== pwConfirm){ showAuthError('Les deux mots de passe ne correspondent pas.'); return; }
+  try{
+    await createUserWithEmailAndPassword(auth, email, pw);
+    // onAuthStateChanged prend le relais ; sans rôle assigné, l'écran "Accès non configuré" s'affichera.
+  }catch(err){
+    showAuthError(authErrorMessage(err));
+  }
 }
 
 function showAuthError(msg){
@@ -2374,6 +2852,8 @@ function authErrorMessage(err){
   if(code.includes('too-many-requests')) return 'Trop de tentatives. Réessaie dans quelques minutes.';
   if(code.includes('invalid-email')) return 'Adresse email invalide.';
   if(code.includes('network-request-failed')) return 'Pas de connexion internet. Réessaie.';
+  if(code.includes('email-already-in-use')) return 'Un compte existe déjà avec cet email — connecte-toi plutôt.';
+  if(code.includes('weak-password')) return 'Mot de passe trop court (6 caractères minimum).';
   return "Erreur de connexion. Vérifie ta connexion internet et réessaie.";
 }
 
@@ -2442,6 +2922,64 @@ async function copyLinkRobust(inputEl){
 }
 
 function attachSecurityHandlers(){
+  document.getElementById('qrFileInput')?.addEventListener('change', (e)=>{
+    const file = e.target.files[0];
+    if(!file) return;
+    if(file.size > 4*1024*1024){ toast('Image trop lourde (max 4 Mo).'); return; }
+    const reader = new FileReader();
+    reader.onload = (ev)=>{
+      const img = new Image();
+      img.onload = ()=>{
+        // redimensionne pour garder un fichier léger (Firestore limite les documents à 1 Mo)
+        const maxSize = 400;
+        const scale = Math.min(1, maxSize / Math.max(img.width, img.height));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.round(img.width*scale);
+        canvas.height = Math.round(img.height*scale);
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0,0,canvas.width,canvas.height);
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        paymentInfo.qrCodeBase64 = canvas.toDataURL('image/jpeg', 0.9);
+        renderParametres_refresh();
+      };
+      img.src = ev.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+  document.getElementById('btnRemoveQr')?.addEventListener('click', ()=>{
+    paymentInfo.qrCodeBase64 = '';
+    renderParametres_refresh();
+  });
+  document.getElementById('btnSavePaymentInfo')?.addEventListener('click', async ()=>{
+    paymentInfo.orangeMoneyNumero = document.getElementById('orangeMoneyInput').value.trim();
+    paymentInfo.moovMoneyNumero = document.getElementById('moovMoneyInput').value.trim();
+    paymentInfo.instructions = document.getElementById('paymentInstructionsInput').value.trim();
+    try{
+      await setDoc(PAYMENT_INFO_DOC, paymentInfo);
+      toast('Moyen de paiement enregistré ✓');
+    }catch(e){ console.error(e); toast("Erreur lors de l'enregistrement."); }
+  });
+  document.getElementById('btnAddBureauAccess')?.addEventListener('click', async ()=>{
+    const uidInput = document.getElementById('newBureauUid');
+    const nomInput = document.getElementById('newBureauNom');
+    const uid = uidInput.value.trim();
+    const nom = nomInput.value.trim();
+    if(!uid){ toast("Colle l'UID Firebase de la personne."); return; }
+    try{
+      await setDoc(doc(db,'userRoles', uid), { role:'bureau', nom: nom||uid });
+      toast('Accès lecture seule donné ✓');
+      uidInput.value=''; nomInput.value='';
+    }catch(e){ console.error(e); toast("Erreur lors de l'attribution de l'accès."); }
+  });
+  document.querySelectorAll('[data-remove-bureau]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      try{
+        await deleteDoc(doc(db,'userRoles', btn.dataset.removeBureau));
+        toast('Accès retiré');
+      }catch(e){ console.error(e); toast('Erreur lors du retrait.'); }
+    });
+  });
   document.getElementById('btnBackupJson')?.addEventListener('click', ()=>{
     try{
       const payload = JSON.stringify({ exportedAt: new Date().toISOString(), state }, null, 2);
