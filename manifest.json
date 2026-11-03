@@ -1,7 +1,7 @@
 {
   "name": "Trésor JCF",
   "short_name": "Trésor JCF",
-  "start_url": "./index.html",
+  "start_url": "./",
   "display": "standalone",
   "background_color": "#eef1f6",
   "theme_color": "#16234a",
